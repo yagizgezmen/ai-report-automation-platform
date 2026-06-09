@@ -1,0 +1,150 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+enum ReportStatus {
+  DRAFT
+  IN_PROGRESS
+  NEEDS_REVIEW
+  COMPLETED
+}
+
+enum ReviewStatus {
+  NOT_STARTED
+  GENERATED
+  NEEDS_REVIEW
+  APPROVED
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  reports   Report[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Report {
+  id             String            @id @default(cuid())
+  userId         String?
+  user           User?             @relation(fields: [userId], references: [id])
+  reportType     String
+  projectName    String
+  city           String
+  district       String?
+  neighborhood   String?
+  parcelInfo     String?
+  manualNotes    String?           @db.Text
+  outputLanguage String            @default("English")
+  desiredLength  Int               @default(65)
+  status         ReportStatus      @default(DRAFT)
+  sections       ReportSection[]
+  sources        Source[]
+  documents      UploadedDocument[]
+  messages       ChatMessage[]
+  jobs           GenerationJob[]
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+}
+
+model ReportSection {
+  id                String       @id @default(cuid())
+  reportId          String
+  report            Report       @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  position          Int
+  title             String
+  description       String       @db.Text
+  requiredInputs    Json
+  sourceRequired    Boolean      @default(false)
+  content           String       @default("") @db.Text
+  reviewStatus      ReviewStatus @default(NOT_STARTED)
+  confidence        String       @default("Low")
+  unsupportedClaims Json
+  missingWarnings   Json
+  sourceLinks       SectionSource[]
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@unique([reportId, position])
+}
+
+model Source {
+  id          String          @id @default(cuid())
+  reportId    String
+  report      Report          @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  title       String
+  url         String
+  fetchedAt   DateTime        @default(now())
+  content     String          @db.Text
+  isOfficial  Boolean         @default(false)
+  sectionLinks SectionSource[]
+}
+
+model SectionSource {
+  sectionId String
+  sourceId  String
+  section   ReportSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  source    Source        @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@id([sectionId, sourceId])
+}
+
+model UploadedDocument {
+  id            String          @id @default(cuid())
+  reportId      String
+  report        Report          @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  fileName      String
+  mimeType      String
+  size          Int
+  extractedText String          @db.Text
+  chunks        DocumentChunk[]
+  createdAt     DateTime        @default(now())
+}
+
+model DocumentChunk {
+  id         String             @id @default(cuid())
+  documentId String
+  document   UploadedDocument   @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  position   Int
+  content    String             @db.Text
+  embedding  Unsupported("vector(1536)")?
+
+  @@index([documentId])
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  reportId  String
+  report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  sectionId String?
+  role      String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+}
+
+model GenerationJob {
+  id        String    @id @default(cuid())
+  reportId  String
+  report    Report    @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  sectionId String?
+  status    JobStatus @default(QUEUED)
+  error     String?   @db.Text
+  startedAt DateTime?
+  endedAt   DateTime?
+  createdAt DateTime  @default(now())
+}
