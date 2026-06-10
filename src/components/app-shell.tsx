@@ -22,7 +22,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Nav href="/" active={pathname === "/"} icon={<LayoutDashboard size={17} />} label={t("dashboard")} />
           <Nav href="/" active={false} icon={<FileText size={17} />} label={t("reports")} />
           <Nav href="/" active={false} icon={<BookOpen size={17} />} label={t("knowledgeBase")} />
-          <Nav href="/settings/report-sources" active={pathname === "/settings/report-sources"} icon={<Settings size={17} />} label={t("sourceSettings")} />
+          <Nav href="/settings/report-templates" active={pathname.startsWith("/settings/report-templates") || pathname.startsWith("/settings/report-sources")} icon={<Settings size={17} />} label={t("templateSettings")} />
         </nav>
         <div className="absolute bottom-0 w-full border-t border-white/10 p-4">
           <div className="mb-4 flex items-center gap-3 rounded-lg bg-white/5 p-3">
@@ -32,7 +32,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <div className="truncate text-[10px] text-blue-200">{t("seniorConsultant")}</div>
             </div>
           </div>
-          <Link href="/settings/report-sources" className="flex items-center gap-3 text-xs text-blue-100"><Settings size={16} /> {t("workspaceSettings")}</Link>
+          <Link href="/settings/report-templates" className="flex items-center gap-3 text-xs text-blue-100"><Settings size={16} /> {t("workspaceSettings")}</Link>
         </div>
       </aside>
       <div className="ml-[230px]">

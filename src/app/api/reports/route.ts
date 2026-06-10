@@ -4,9 +4,9 @@ import { collectSource } from "@/lib/source-service";
 import {
   addSource,
   createReport,
+  getReportType,
   getReport,
   listReports,
-  listReportTypeSources,
 } from "@/lib/store";
 import { createReportSchema } from "@/lib/validation";
 
@@ -21,10 +21,14 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const input = createReportSchema.parse(await request.json());
+    const reportType = await getReportType(input.reportTypeId);
+    if (!reportType) return NextResponse.json({ error: "Report type not found." }, { status: 404 });
     const report = await createReport(input);
-    const configuredSources = await listReportTypeSources(input.reportType);
     const results = await Promise.allSettled(
-      configuredSources.map(({ url }) => collectSource(url, { origin: "configured" })),
+      reportType.sources.map((source) => collectSource(source.url, {
+        origin: "configured",
+        searchQuery: reportType.name,
+      })),
     );
     const sources = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
     await Promise.all(sources.map((source) => addSource(report.id, source)));

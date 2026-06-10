@@ -5,10 +5,10 @@ An enterprise-style MVP for producing long-form, evidence-grounded company repor
 ## Features
 
 - Dashboard with report status and progress
-- Guided report creation with location, parcel, notes, language, and length inputs
-- Report-type source settings with automatic default-source attachment
+- Guided report creation with report type, project, location, language, length, and AI settings
+- Report-template management with sections, sources, and general settings
 - Per-report AI web research permission with a provider-ready service abstraction
-- Ten-section professional report template
+- Template-driven report section creation with stored sort order
 - URL content collection with readable-text extraction
 - PDF, DOCX, and TXT upload with text extraction and chunking
 - PostgreSQL/Prisma data model with a `pgvector` embedding column
@@ -155,7 +155,7 @@ For non-interactive production deployments, use:
 npx prisma migrate deploy
 ```
 
-The Prisma repository persists `User`, `Report`, `ReportSection`, `Source`, `SectionSource`, `UploadedDocument`, `DocumentChunk`, `ChatMessage`, and `GenerationJob`. `DocumentChunk.embedding` is a nullable `vector(1536)` field ready for OpenAI embeddings.
+The Prisma repository persists `User`, `Report`, `ReportType`, `ReportTypeSection`, `ReportTypeSource`, `ReportSection`, `Source`, `SectionSource`, `UploadedDocument`, `DocumentChunk`, `ChatMessage`, and `GenerationJob`. `DocumentChunk.embedding` is a nullable `vector(1536)` field ready for OpenAI embeddings.
 
 Reports, section edits, sources, uploaded document text/chunks, chat messages, and generation job states survive application restarts in PostgreSQL mode. The health endpoint reports the active mode as `demo` or `postgresql`.
 
@@ -169,22 +169,34 @@ Database access is isolated under `src/lib/repositories`:
 - `documentRepository.ts` persists uploaded documents and chunks.
 - `chatRepository.ts` persists report assistant messages.
 - `generationJobRepository.ts` tracks generation job lifecycle.
-- `reportTypeSourceRepository.ts` manages default URLs for each report type.
+- `reportTypeRepository.ts` manages report templates, sections, and default sources.
 
 `src/lib/store.ts` is the application-facing abstraction. It delegates to these repositories in PostgreSQL mode and dynamically loads `src/lib/demo-store.ts` only in demo mode. API routes do not import Prisma directly.
 
-### Report source configuration
+### Report template workflow
 
-Open `/settings/report-sources` to select a report type and manage its default
-source URLs. New reports automatically fetch and attach the configured sources.
-Users can still add additional sources from the report editor.
+Open `/settings/report-templates` to manage report types, section order/content,
+and default sources in one place. Each report type includes:
 
-The new-report form does not require URLs. Its **Allow AI to use web research**
-toggle is stored as `Report.allowWebResearch`. When disabled, generation is
-restricted to configured sources, uploaded documents, and user notes. When
-enabled, `src/lib/services/webResearchService.ts` is invoked; the current MVP
-implementation is intentionally provider-neutral and returns no additional
-results until an approved search provider is connected.
+- General settings: name and description
+- Sections: add, edit, delete, and drag-to-reorder
+- Sources: add, edit, delete default trusted URLs with names/descriptions
+
+The legacy `/settings/report-sources` route now redirects to the template page.
+
+When a user creates a report, the application:
+
+- loads sections from `ReportTypeSection`
+- loads default URLs from `ReportTypeSource`
+- creates the report structure automatically from the selected template
+
+The new-report form does not require URLs and no longer includes a manual
+company-context textarea. Instead, it exposes an **AI Settings** section with an
+`Allow AI to use web research` switch. The value is stored as
+`Report.allowWebResearch`. When disabled, generation is restricted to
+configured sources, uploaded documents, and user notes. When enabled,
+`src/lib/services/webResearchService.ts` is invoked and may add trusted,
+AI-discovered web sources to the report.
 
 AI prompts enforce `Report.outputLanguage` for section generation and chatbot
 editing. Turkish reports use formal Turkish, while English reports use formal
@@ -245,6 +257,8 @@ Health information is available at `/api/health`.
 ## API routes
 
 - `GET/POST /api/reports`
+- `GET/POST /api/report-types`
+- `GET/PATCH/DELETE /api/report-types/:id`
 - `GET/PATCH /api/reports/:id`
 - `POST /api/reports/:id/sources`
 - `POST /api/reports/:id/documents`

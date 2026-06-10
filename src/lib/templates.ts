@@ -1,4 +1,4 @@
-import type { ReportSection } from "@/lib/types";
+import type { ReportSection, ReportTypeSectionConfig } from "@/lib/types";
 
 const templateSections = [
   ["Executive Summary", "A concise overview of the project, key findings, and recommendation.", ["project information", "key findings"], true],
@@ -13,8 +13,13 @@ const templateSections = [
   ["References", "Complete list of official websites and uploaded documents cited in the report.", ["sources"], true],
 ] as const;
 
-export function createTemplateSections(): ReportSection[] {
-  return templateSections.map(([title, description, requiredInputs, sourceRequired], index) => ({
+export function createTemplateSections(sectionConfigs?: ReportTypeSectionConfig[]): ReportSection[] {
+  const sections = sectionConfigs?.length
+    ? sectionConfigs
+      .sort((left, right) => left.sortOrder - right.sortOrder)
+      .map((section) => [section.title, section.description, [], true] as const)
+    : templateSections;
+  return sections.map(([title, description, requiredInputs, sourceRequired], index) => ({
     id: `section-${index + 1}`,
     title,
     description,

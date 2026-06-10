@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const createReportSchema = z.object({
-  reportType: z.string().trim().min(2).max(100),
+  reportTypeId: z.string().trim().min(1),
   projectName: z.string().trim().min(2).max(160),
   city: z.string().trim().min(2).max(100),
   district: z.string().trim().max(100).optional(),
@@ -13,9 +13,31 @@ export const createReportSchema = z.object({
   desiredLength: z.number().int().min(5).max(100),
 });
 
-export const reportTypeSourcesSchema = z.object({
-  reportType: z.string().trim().min(2).max(100),
-  urls: z.array(z.string().trim().url()).max(50),
+const reportTypeSectionSchema = z.object({
+  id: z.string().trim().optional(),
+  title: z.string().trim().min(1).max(160),
+  description: z.string().trim().min(1).max(5000),
+  sortOrder: z.number().int().min(0).optional(),
+});
+
+const reportTypeSourceSchema = z.object({
+  id: z.string().trim().optional(),
+  name: z.string().trim().min(1).max(160),
+  url: z.string().trim().url(),
+  description: z.string().trim().max(5000).optional(),
+});
+
+export const createReportTypeSchema = z.object({
+  name: z.string().trim().min(2).max(160),
+  description: z.string().trim().max(5000).optional().default(""),
+});
+
+export const updateReportTypeSchema = z.object({
+  id: z.string().trim().min(1),
+  name: z.string().trim().min(2).max(160),
+  description: z.string().trim().max(5000).optional().default(""),
+  sections: z.array(reportTypeSectionSchema).max(100),
+  sources: z.array(reportTypeSourceSchema).max(100),
 });
 
 export const sourceSchema = z.object({

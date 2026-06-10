@@ -40,6 +40,7 @@ export interface ReportSection {
 
 export interface Report {
   id: string;
+  reportTypeId?: string;
   reportType: string;
   projectName: string;
   location: string;
@@ -57,7 +58,7 @@ export interface Report {
 }
 
 export interface CreateReportInput {
-  reportType: string;
+  reportTypeId: string;
   projectName: string;
   city: string;
   district?: string;
@@ -69,8 +70,24 @@ export interface CreateReportInput {
   desiredLength: number;
 }
 
+export interface ReportTypeSectionConfig {
+  id: string;
+  title: string;
+  description: string;
+  sortOrder: number;
+}
+
 export interface ReportTypeSource {
   id: string;
-  reportType: string;
+  name: string;
   url: string;
+  description?: string;
+}
+
+export interface ReportType {
+  id: string;
+  name: string;
+  description: string;
+  sections: ReportTypeSectionConfig[];
+  sources: ReportTypeSource[];
 }

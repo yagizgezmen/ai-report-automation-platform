@@ -49,6 +49,8 @@ model Report {
   id             String            @id @default(cuid())
   userId         String?
   user           User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  reportTypeId   String?
+  reportTypeRef  ReportType?       @relation(fields: [reportTypeId], references: [id], onDelete: SetNull)
   reportType     String
   projectName    String
   city           String
@@ -69,18 +71,47 @@ model Report {
   updatedAt      DateTime          @updatedAt
 
   @@index([userId])
+  @@index([reportTypeId])
   @@index([status, updatedAt])
+}
+
+model ReportType {
+  id          String             @id @default(cuid())
+  name        String             @unique
+  description String?            @db.Text
+  reports     Report[]
+  sections    ReportTypeSection[]
+  sources     ReportTypeSource[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+}
+
+model ReportTypeSection {
+  id           String     @id @default(cuid())
+  reportTypeId String
+  reportType   ReportType @relation(fields: [reportTypeId], references: [id], onDelete: Cascade)
+  title        String
+  description  String     @db.Text
+  sortOrder    Int
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([reportTypeId, sortOrder])
+  @@index([reportTypeId, sortOrder])
 }
 
 model ReportTypeSource {
   id         String   @id @default(cuid())
-  reportType String
+  reportTypeId String
+  reportType ReportType @relation(fields: [reportTypeId], references: [id], onDelete: Cascade)
+  name       String
   url        String
+  description String?  @db.Text
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  @@unique([reportType, url])
-  @@index([reportType])
+  @@unique([reportTypeId, url])
+  @@index([reportTypeId])
 }
 
 model ReportSection {

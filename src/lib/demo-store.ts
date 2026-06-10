@@ -1,17 +1,39 @@
 import { randomUUID } from "crypto";
+import { DEFAULT_REPORT_TEMPLATES } from "@/lib/report-types";
 import { createTemplateSections } from "@/lib/templates";
 import {
   CreateReportInput,
   Report,
-  ReportTypeSource,
+  ReportType,
   Source,
   UploadedDocument,
 } from "@/lib/types";
 
 const now = new Date();
+
+const demoReportTypes: ReportType[] = DEFAULT_REPORT_TEMPLATES.map((template, templateIndex) => ({
+  id: `demo-report-type-${templateIndex + 1}`,
+  name: template.name,
+  description: template.description,
+  sections: template.sections.map((section, sectionIndex) => ({
+    id: `demo-report-type-${templateIndex + 1}-section-${sectionIndex + 1}`,
+    title: section.title,
+    description: section.description,
+    sortOrder: sectionIndex,
+  })),
+  sources: template.sources.map((source, sourceIndex) => ({
+    id: `demo-report-type-${templateIndex + 1}-source-${sourceIndex + 1}`,
+    name: source.name,
+    url: source.url,
+    description: source.description,
+  })),
+}));
+
+const sampleTemplate = demoReportTypes[0];
 const sampleReport: Report = {
   id: "demo-report",
-  reportType: "Planning & Development Report",
+  reportTypeId: sampleTemplate.id,
+  reportType: sampleTemplate.name,
   projectName: "Kadıköy Coastal Planning Assessment",
   location: "Istanbul / Kadıköy / Fenerbahçe",
   parcelInfo: "Block 348, Parcels 12–15",
@@ -20,8 +42,9 @@ const sampleReport: Report = {
   allowWebResearch: false,
   desiredLength: 65,
   status: "Needs Review",
-  sections: createTemplateSections().map((section, index) => ({
+  sections: createTemplateSections(sampleTemplate.sections).map((section, index) => ({
     ...section,
+    id: `demo-section-${index + 1}`,
     content: index === 0
       ? "This report evaluates the planning context and development considerations for the subject properties in Fenerbahçe, Kadıköy. The assessment consolidates project information, official planning material, and company observations into a structured basis for decision-making [S1].\n\nThe available evidence indicates that the site benefits from an established urban setting and access to regional transport connections. Detailed confirmation of current plan notes and parcel-specific restrictions remains necessary before a final development position is adopted [Needs manual review]."
       : index === 1
@@ -47,21 +70,28 @@ const sampleReport: Report = {
   updatedAt: now.toISOString(),
 };
 
-const globalStore = globalThis as unknown as { reportStore?: Map<string, Report> };
+const globalStore = globalThis as unknown as {
+  reportStore?: Map<string, Report>;
+  reportTypeStore?: Map<string, ReportType>;
+};
 const reports = globalStore.reportStore ?? new Map([[sampleReport.id, sampleReport]]);
+const reportTypes = globalStore.reportTypeStore ?? new Map(demoReportTypes.map((item) => [item.id, item]));
 globalStore.reportStore = reports;
-const reportTypeSources = new Map<string, ReportTypeSource[]>();
+globalStore.reportTypeStore = reportTypes;
 
 export function listDemoReports(): Report[] {
   return [...reports.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export function createDemoReport(input: CreateReportInput): Report {
+  const template = reportTypes.get(input.reportTypeId);
+  if (!template) throw new Error("Report type not found.");
   const id = randomUUID();
   const timestamp = new Date().toISOString();
   const report: Report = {
     id,
-    reportType: input.reportType,
+    reportTypeId: template.id,
+    reportType: template.name,
     projectName: input.projectName,
     location: [input.city, input.district, input.neighborhood].filter(Boolean).join(" / "),
     parcelInfo: input.parcelInfo || "",
@@ -70,7 +100,7 @@ export function createDemoReport(input: CreateReportInput): Report {
     allowWebResearch: input.allowWebResearch,
     desiredLength: input.desiredLength,
     status: "Draft",
-    sections: createTemplateSections().map((section) => ({ ...section, id: randomUUID() })),
+    sections: createTemplateSections(template.sections).map((section) => ({ ...section, id: randomUUID() })),
     sources: [],
     documents: [],
     createdAt: timestamp,
@@ -113,19 +143,44 @@ export function addDemoDocument(
   return document;
 }
 
-export function listDemoReportTypeSources(reportType: string): ReportTypeSource[] {
-  return reportTypeSources.get(reportType) || [];
+export function listDemoReportTypes(): ReportType[] {
+  return [...reportTypes.values()];
 }
 
-export function saveDemoReportTypeSources(
-  reportType: string,
-  urls: string[],
-): ReportTypeSource[] {
-  const sources = [...new Set(urls)].map((url, index) => ({
-    id: `demo-report-type-source-${index}`,
-    reportType,
-    url,
-  }));
-  reportTypeSources.set(reportType, sources);
-  return sources;
+export function getDemoReportType(id: string): ReportType | undefined {
+  return reportTypes.get(id);
+}
+
+export function createDemoReportType(name: string, description: string): ReportType {
+  const template: ReportType = {
+    id: randomUUID(),
+    name,
+    description,
+    sections: [],
+    sources: [],
+  };
+  reportTypes.set(template.id, template);
+  return template;
+}
+
+export function saveDemoReportType(template: ReportType): ReportType {
+  const normalized = {
+    ...template,
+    sections: template.sections
+      .map((section, index) => ({
+        ...section,
+        id: section.id || randomUUID(),
+        sortOrder: index,
+      })),
+    sources: template.sources.map((source) => ({
+      ...source,
+      id: source.id || randomUUID(),
+    })),
+  };
+  reportTypes.set(template.id, normalized);
+  return normalized;
+}
+
+export function deleteDemoReportType(id: string) {
+  reportTypes.delete(id);
 }

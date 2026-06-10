@@ -38,6 +38,7 @@ type ReportRecord = Prisma.ReportGetPayload<{ include: typeof reportInclude }>;
 function toDomainReport(record: ReportRecord): Report {
   return {
     id: record.id,
+    reportTypeId: record.reportTypeId || undefined,
     reportType: record.reportType,
     projectName: record.projectName,
     location: [record.city, record.district, record.neighborhood].filter(Boolean).join(" / "),
@@ -72,9 +73,15 @@ export async function findReportById(id: string): Promise<Report | undefined> {
 }
 
 export async function createPersistedReport(input: CreateReportInput): Promise<Report> {
+  const reportType = await getPrismaClient().reportType.findUnique({
+    where: { id: input.reportTypeId },
+    include: { sections: { orderBy: { sortOrder: "asc" } } },
+  });
+  if (!reportType) throw new Error("Report type not found.");
   const record = await getPrismaClient().report.create({
     data: {
-      reportType: input.reportType,
+      reportTypeId: reportType.id,
+      reportType: reportType.name,
       projectName: input.projectName,
       city: input.city,
       district: input.district || null,
@@ -85,7 +92,12 @@ export async function createPersistedReport(input: CreateReportInput): Promise<R
       allowWebResearch: input.allowWebResearch,
       desiredLength: input.desiredLength,
       sections: {
-        create: createTemplateSections().map(sectionCreateData),
+        create: createTemplateSections(reportType.sections.map((section) => ({
+          id: section.id,
+          title: section.title,
+          description: section.description,
+          sortOrder: section.sortOrder,
+        }))).map(sectionCreateData),
       },
     },
     include: reportInclude,
@@ -100,6 +112,7 @@ export async function savePersistedReport(report: Report): Promise<Report> {
       where: { id: report.id },
       data: {
         projectName: report.projectName,
+        reportTypeId: report.reportTypeId || null,
         parcelInfo: report.parcelInfo || null,
         manualNotes: report.manualNotes || null,
         status: reportStatusToDb[report.status],

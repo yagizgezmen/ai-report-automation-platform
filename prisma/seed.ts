@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { DEFAULT_REPORT_TEMPLATES } from "../src/lib/report-types";
 import { createTemplateSections } from "../src/lib/templates";
 
 const prisma = new PrismaClient();
@@ -8,21 +9,44 @@ const DEMO_REPORT_ID = "demo-report";
 const DEMO_SOURCE_IDS = ["demo-source-municipality", "demo-source-ministry"];
 
 async function main() {
-  const sections = createTemplateSections();
+  const template = DEFAULT_REPORT_TEMPLATES[0];
+  const sections = createTemplateSections(template.sections.map((section, index) => ({
+    id: `seed-section-${index + 1}`,
+    title: section.title,
+    description: section.description,
+    sortOrder: index,
+  })));
 
   await prisma.$transaction(async (tx) => {
-    await tx.reportTypeSource.deleteMany({
-      where: { reportType: "Planning & Development Report" },
-    });
-    await tx.reportTypeSource.createMany({
-      data: [
-        "https://www.tuik.gov.tr",
-        "https://www.resmigazete.gov.tr",
-      ].map((url) => ({
-        reportType: "Planning & Development Report",
-        url,
-      })),
-    });
+    await tx.reportTypeSection.deleteMany();
+    await tx.reportTypeSource.deleteMany();
+    await tx.reportType.deleteMany();
+
+    const createdTypes = [];
+    for (const item of DEFAULT_REPORT_TEMPLATES) {
+      createdTypes.push(await tx.reportType.create({
+        data: {
+          name: item.name,
+          description: item.description,
+          sections: {
+            create: item.sections.map((section, index) => ({
+              title: section.title,
+              description: section.description,
+              sortOrder: index,
+            })),
+          },
+          sources: {
+            create: item.sources.map((source) => ({
+              name: source.name,
+              url: source.url,
+              description: source.description,
+            })),
+          },
+        },
+      }));
+    }
+    const primaryReportType = createdTypes[0];
+
     const demoUser = await tx.user.upsert({
       where: { email: "demo@arqive.ai" },
       update: { name: "Ayşe Yılmaz" },
@@ -39,7 +63,8 @@ async function main() {
       data: {
         id: DEMO_REPORT_ID,
         userId: demoUser.id,
-        reportType: "Planning & Development Report",
+        reportTypeId: primaryReportType.id,
+        reportType: primaryReportType.name,
         projectName: "Kadıköy Coastal Planning Assessment",
         city: "İstanbul",
         district: "Kadıköy",
@@ -78,6 +103,7 @@ async function main() {
               url: "https://www.kadikoy.bel.tr/",
               content: "Kadıköy Belediyesi tarafından yayımlanan resmî planlama ve idari bilgiler için örnek kaynak kaydı.",
               isOfficial: true,
+              origin: "CONFIGURED",
             },
             {
               id: DEMO_SOURCE_IDS[1],
@@ -85,6 +111,7 @@ async function main() {
               url: "https://www.csb.gov.tr/",
               content: "Planlama mevzuatı ve idari çerçeve için örnek resmî bakanlık kaynak kaydı.",
               isOfficial: true,
+              origin: "CONFIGURED",
             },
           ],
         },

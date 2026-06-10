@@ -15,14 +15,17 @@ import {
 import {
   CreateReportInput,
   Report,
-  ReportTypeSource,
+  ReportType,
   Source,
   UploadedDocument,
 } from "@/lib/types";
 import {
-  findReportTypeSources,
-  replaceReportTypeSources,
-} from "@/lib/repositories/reportTypeSourceRepository";
+  createReportType,
+  deleteReportType,
+  findAllReportTypes,
+  findReportTypeById,
+  saveReportType,
+} from "@/lib/repositories/reportTypeRepository";
 
 async function demoStore() {
   return import("@/lib/demo-store");
@@ -87,15 +90,27 @@ export async function completeGenerationJob(jobId: string, error?: string) {
   await finishGenerationJob(jobId, error);
 }
 
-export async function listReportTypeSources(reportType: string): Promise<ReportTypeSource[]> {
-  if (databaseEnabled) return findReportTypeSources(reportType);
-  return (await demoStore()).listDemoReportTypeSources(reportType);
+export async function listReportTypes(): Promise<ReportType[]> {
+  if (databaseEnabled) return findAllReportTypes();
+  return (await demoStore()).listDemoReportTypes();
 }
 
-export async function saveReportTypeSources(
-  reportType: string,
-  urls: string[],
-): Promise<ReportTypeSource[]> {
-  if (databaseEnabled) return replaceReportTypeSources(reportType, urls);
-  return (await demoStore()).saveDemoReportTypeSources(reportType, urls);
+export async function getReportType(id: string): Promise<ReportType | undefined> {
+  if (databaseEnabled) return findReportTypeById(id);
+  return (await demoStore()).getDemoReportType(id);
+}
+
+export async function addReportType(name: string, description: string): Promise<ReportType> {
+  if (databaseEnabled) return createReportType(name, description);
+  return (await demoStore()).createDemoReportType(name, description);
+}
+
+export async function updateReportType(template: ReportType): Promise<ReportType> {
+  if (databaseEnabled) return saveReportType(template);
+  return (await demoStore()).saveDemoReportType(template);
+}
+
+export async function removeReportType(id: string) {
+  if (databaseEnabled) return deleteReportType(id);
+  return (await demoStore()).deleteDemoReportType(id);
 }
