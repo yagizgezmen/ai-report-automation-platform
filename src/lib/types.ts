@@ -43,6 +43,7 @@ export interface Report {
   parcelInfo: string;
   manualNotes: string;
   outputLanguage: string;
+  allowWebResearch: boolean;
   desiredLength: number;
   status: ReportStatus;
   sections: ReportSection[];
@@ -59,8 +60,14 @@ export interface CreateReportInput {
   district?: string;
   neighborhood?: string;
   parcelInfo?: string;
-  sourceUrls: string[];
   manualNotes?: string;
   outputLanguage: string;
+  allowWebResearch: boolean;
   desiredLength: number;
+}
+
+export interface ReportTypeSource {
+  id: string;
+  reportType: string;
+  url: string;
 }

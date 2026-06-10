@@ -6,13 +6,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { useLanguage } from "@/components/language-provider";
+import { reportTypes } from "@/lib/report-types";
+import { localizeReportType } from "@/lib/localization";
 
 export default function NewReportPage() {
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [urls, setUrls] = useState("");
+  const [allowWebResearch, setAllowWebResearch] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -22,7 +24,11 @@ export default function NewReportPage() {
     const response = await fetch("/api/reports", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...payload, desiredLength: Number(payload.desiredLength), sourceUrls: urls.split("\n").filter(Boolean) }),
+      body: JSON.stringify({
+        ...payload,
+        desiredLength: Number(payload.desiredLength),
+        allowWebResearch,
+      }),
     });
     const body = await response.json();
     if (!response.ok) { setError(body.error || "Rapor oluşturulamadı."); setSaving(false); return; }
@@ -42,7 +48,7 @@ export default function NewReportPage() {
           <div className="space-y-5">
             <FormSection icon={<FileText size={18} />} title={t("reportDetails")}>
               <div className="grid grid-cols-2 gap-4">
-                <Field label={t("reportType")}><select name="reportType" className="field" required><option value="Planning & Development Report">{t("planningReport")}</option><option value="Feasibility Report">{t("feasibilityReport")}</option><option value="Due Diligence Report">{t("dueDiligenceReport")}</option><option value="Market Assessment">{t("marketAssessment")}</option></select></Field>
+                <Field label={t("reportType")}><select name="reportType" className="field" required>{reportTypes.map((type) => <option key={type} value={type}>{localizeReportType(type, language)}</option>)}</select></Field>
                 <Field label={t("projectName")}><input name="projectName" className="field" placeholder={t("projectPlaceholder")} required /></Field>
               </div>
             </FormSection>
@@ -55,12 +61,23 @@ export default function NewReportPage() {
               <Field label={t("parcelInfo")}><input name="parcelInfo" className="field" placeholder={t("parcelPlaceholder")} /></Field>
             </FormSection>
             <FormSection icon={<Globe2 size={18} />} title={t("sourcesContext")}>
-              <Field label={t("officialUrls")}><textarea value={urls} onChange={(e) => setUrls(e.target.value)} className="field min-h-24 resize-y" placeholder={"https://belediye.gov.tr/...\nhttps://resmi-kaynak.gov.tr/..."} /></Field>
               <Field label={t("companyNotes")}><textarea name="manualNotes" className="field min-h-28 resize-y" placeholder={t("companyNotesPlaceholder")} /></Field>
+              <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <input
+                  type="checkbox"
+                  checked={allowWebResearch}
+                  onChange={(event) => setAllowWebResearch(event.target.checked)}
+                  className="mt-1 h-4 w-4 accent-blue-600"
+                />
+                <span>
+                  <span className="block text-sm font-bold text-slate-800">{t("allowWebResearch")}</span>
+                  <span className="mt-1 block text-xs leading-5 text-slate-500">{t("allowWebResearchHelp")}</span>
+                </span>
+              </label>
             </FormSection>
             <FormSection icon={<SlidersHorizontal size={18} />} title={t("outputPreferences")}>
               <div className="grid grid-cols-2 gap-4">
-                <Field label={t("outputLanguage")}><select name="outputLanguage" className="field" defaultValue="Turkish"><option value="Turkish">{t("turkish")}</option><option value="English">{t("english")}</option><option value="German">{t("german")}</option></select></Field>
+                <Field label={t("outputLanguage")}><select name="outputLanguage" className="field" defaultValue="Turkish"><option value="Turkish">{t("turkish")}</option><option value="English">{t("english")}</option></select></Field>
                 <Field label={t("desiredLength")}><select name="desiredLength" className="field">{[40, 60, 65, 70].map((count) => <option key={count} value={count}>{t("pagesApprox", { count })}</option>)}</select></Field>
               </div>
             </FormSection>
@@ -74,7 +91,7 @@ export default function NewReportPage() {
               <div className="mb-4 rounded-xl bg-blue-50 p-4 text-blue-700"><FileText size={24} /></div>
               <h3 className="font-bold">{t("whatNext")}</h3>
               <div className="mt-5 space-y-4">
-                {[t("nextTemplate"), t("nextUrls"), t("nextFiles"), t("nextGenerate")].map((text) => (
+                {[t("nextTemplate"), t("nextConfiguredSources"), t("nextFiles"), t("nextGenerate")].map((text) => (
                   <div key={text} className="flex gap-3 text-xs leading-5 text-slate-600"><Check size={15} className="mt-0.5 shrink-0 text-emerald-600" />{text}</div>
                 ))}
               </div>

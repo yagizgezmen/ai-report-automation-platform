@@ -3,6 +3,7 @@ import { createTemplateSections } from "@/lib/templates";
 import {
   CreateReportInput,
   Report,
+  ReportTypeSource,
   Source,
   UploadedDocument,
 } from "@/lib/types";
@@ -16,6 +17,7 @@ const sampleReport: Report = {
   parcelInfo: "Block 348, Parcels 12–15",
   manualNotes: "Focus on planning compatibility, transport access, and public realm impact.",
   outputLanguage: "English",
+  allowWebResearch: false,
   desiredLength: 65,
   status: "Needs Review",
   sections: createTemplateSections().map((section, index) => ({
@@ -47,6 +49,7 @@ const sampleReport: Report = {
 const globalStore = globalThis as unknown as { reportStore?: Map<string, Report> };
 const reports = globalStore.reportStore ?? new Map([[sampleReport.id, sampleReport]]);
 globalStore.reportStore = reports;
+const reportTypeSources = new Map<string, ReportTypeSource[]>();
 
 export function listDemoReports(): Report[] {
   return [...reports.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -63,6 +66,7 @@ export function createDemoReport(input: CreateReportInput): Report {
     parcelInfo: input.parcelInfo || "",
     manualNotes: input.manualNotes || "",
     outputLanguage: input.outputLanguage,
+    allowWebResearch: input.allowWebResearch,
     desiredLength: input.desiredLength,
     status: "Draft",
     sections: createTemplateSections().map((section) => ({ ...section, id: randomUUID() })),
@@ -104,4 +108,21 @@ export function addDemoDocument(
   report.status = "In Progress";
   saveDemoReport(report);
   return document;
+}
+
+export function listDemoReportTypeSources(reportType: string): ReportTypeSource[] {
+  return reportTypeSources.get(reportType) || [];
+}
+
+export function saveDemoReportTypeSources(
+  reportType: string,
+  urls: string[],
+): ReportTypeSource[] {
+  const sources = [...new Set(urls)].map((url, index) => ({
+    id: `demo-report-type-source-${index}`,
+    reportType,
+    url,
+  }));
+  reportTypeSources.set(reportType, sources);
+  return sources;
 }

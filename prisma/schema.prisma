@@ -51,6 +51,7 @@ model Report {
   parcelInfo     String?
   manualNotes    String?           @db.Text
   outputLanguage String            @default("English")
+  allowWebResearch Boolean         @default(false)
   desiredLength  Int               @default(65)
   status         ReportStatus      @default(DRAFT)
   sections       ReportSection[]
@@ -63,6 +64,17 @@ model Report {
 
   @@index([userId])
   @@index([status, updatedAt])
+}
+
+model ReportTypeSource {
+  id         String   @id @default(cuid())
+  reportType String
+  url        String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([reportType, url])
+  @@index([reportType])
 }
 
 model ReportSection {

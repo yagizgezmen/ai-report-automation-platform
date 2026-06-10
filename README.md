@@ -5,7 +5,9 @@ An enterprise-style MVP for producing long-form, evidence-grounded company repor
 ## Features
 
 - Dashboard with report status and progress
-- Guided report creation with location, parcel, source, language, and length inputs
+- Guided report creation with location, parcel, notes, language, and length inputs
+- Report-type source settings with automatic default-source attachment
+- Per-report AI web research permission with a provider-ready service abstraction
 - Ten-section professional report template
 - URL content collection with readable-text extraction
 - PDF, DOCX, and TXT upload with text extraction and chunking
@@ -167,8 +169,26 @@ Database access is isolated under `src/lib/repositories`:
 - `documentRepository.ts` persists uploaded documents and chunks.
 - `chatRepository.ts` persists report assistant messages.
 - `generationJobRepository.ts` tracks generation job lifecycle.
+- `reportTypeSourceRepository.ts` manages default URLs for each report type.
 
 `src/lib/store.ts` is the application-facing abstraction. It delegates to these repositories in PostgreSQL mode and dynamically loads `src/lib/demo-store.ts` only in demo mode. API routes do not import Prisma directly.
+
+### Report source configuration
+
+Open `/settings/report-sources` to select a report type and manage its default
+source URLs. New reports automatically fetch and attach the configured sources.
+Users can still add additional sources from the report editor.
+
+The new-report form does not require URLs. Its **Allow AI to use web research**
+toggle is stored as `Report.allowWebResearch`. When disabled, generation is
+restricted to configured sources, uploaded documents, and user notes. When
+enabled, `src/lib/services/webResearchService.ts` is invoked; the current MVP
+implementation is intentionally provider-neutral and returns no additional
+results until an approved search provider is connected.
+
+AI prompts enforce `Report.outputLanguage` for section generation and chatbot
+editing. Turkish reports use formal Turkish, while English reports use formal
+business English.
 
 ### Database commands
 

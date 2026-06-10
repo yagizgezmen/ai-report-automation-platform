@@ -44,6 +44,7 @@ function toDomainReport(record: ReportRecord): Report {
     parcelInfo: record.parcelInfo || "",
     manualNotes: record.manualNotes || "",
     outputLanguage: record.outputLanguage,
+    allowWebResearch: record.allowWebResearch,
     desiredLength: record.desiredLength,
     status: reportStatusFromDb[record.status],
     sections: record.sections.map(toDomainSection),
@@ -81,6 +82,7 @@ export async function createPersistedReport(input: CreateReportInput): Promise<R
       parcelInfo: input.parcelInfo || null,
       manualNotes: input.manualNotes || null,
       outputLanguage: input.outputLanguage,
+      allowWebResearch: input.allowWebResearch,
       desiredLength: input.desiredLength,
       sections: {
         create: createTemplateSections().map(sectionCreateData),
@@ -102,6 +104,7 @@ export async function savePersistedReport(report: Report): Promise<Report> {
         manualNotes: report.manualNotes || null,
         status: reportStatusToDb[report.status],
         outputLanguage: report.outputLanguage,
+        allowWebResearch: report.allowWebResearch,
         desiredLength: report.desiredLength,
       },
     });

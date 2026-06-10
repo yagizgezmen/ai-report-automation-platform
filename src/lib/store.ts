@@ -15,9 +15,14 @@ import {
 import {
   CreateReportInput,
   Report,
+  ReportTypeSource,
   Source,
   UploadedDocument,
 } from "@/lib/types";
+import {
+  findReportTypeSources,
+  replaceReportTypeSources,
+} from "@/lib/repositories/reportTypeSourceRepository";
 
 async function demoStore() {
   return import("@/lib/demo-store");
@@ -80,4 +85,17 @@ export async function createGenerationJob(reportId: string, sectionId: string) {
 export async function completeGenerationJob(jobId: string, error?: string) {
   if (!databaseEnabled) return;
   await finishGenerationJob(jobId, error);
+}
+
+export async function listReportTypeSources(reportType: string): Promise<ReportTypeSource[]> {
+  if (databaseEnabled) return findReportTypeSources(reportType);
+  return (await demoStore()).listDemoReportTypeSources(reportType);
+}
+
+export async function saveReportTypeSources(
+  reportType: string,
+  urls: string[],
+): Promise<ReportTypeSource[]> {
+  if (databaseEnabled) return replaceReportTypeSources(reportType, urls);
+  return (await demoStore()).saveDemoReportTypeSources(reportType, urls);
 }

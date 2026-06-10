@@ -11,6 +11,18 @@ async function main() {
   const sections = createTemplateSections();
 
   await prisma.$transaction(async (tx) => {
+    await tx.reportTypeSource.deleteMany({
+      where: { reportType: "Planning & Development Report" },
+    });
+    await tx.reportTypeSource.createMany({
+      data: [
+        "https://www.tuik.gov.tr",
+        "https://www.resmigazete.gov.tr",
+      ].map((url) => ({
+        reportType: "Planning & Development Report",
+        url,
+      })),
+    });
     const demoUser = await tx.user.upsert({
       where: { email: "demo@arqive.ai" },
       update: { name: "Ayşe Yılmaz" },
