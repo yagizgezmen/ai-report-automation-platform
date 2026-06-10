@@ -42,7 +42,7 @@ model User {
 model Report {
   id             String            @id @default(cuid())
   userId         String?
-  user           User?             @relation(fields: [userId], references: [id])
+  user           User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
   reportType     String
   projectName    String
   city           String
@@ -60,6 +60,9 @@ model Report {
   jobs           GenerationJob[]
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
+
+  @@index([userId])
+  @@index([status, updatedAt])
 }
 
 model ReportSection {
@@ -77,6 +80,8 @@ model ReportSection {
   unsupportedClaims Json
   missingWarnings   Json
   sourceLinks       SectionSource[]
+  messages          ChatMessage[]
+  jobs              GenerationJob[]
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
@@ -93,6 +98,8 @@ model Source {
   content     String          @db.Text
   isOfficial  Boolean         @default(false)
   sectionLinks SectionSource[]
+
+  @@index([reportId])
 }
 
 model SectionSource {
@@ -114,6 +121,8 @@ model UploadedDocument {
   extractedText String          @db.Text
   chunks        DocumentChunk[]
   createdAt     DateTime        @default(now())
+
+  @@index([reportId])
 }
 
 model DocumentChunk {
@@ -132,9 +141,12 @@ model ChatMessage {
   reportId  String
   report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
   sectionId String?
+  section   ReportSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   role      String
   content   String   @db.Text
   createdAt DateTime @default(now())
+
+  @@index([reportId, sectionId])
 }
 
 model GenerationJob {
@@ -142,9 +154,12 @@ model GenerationJob {
   reportId  String
   report    Report    @relation(fields: [reportId], references: [id], onDelete: Cascade)
   sectionId String?
+  section   ReportSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   status    JobStatus @default(QUEUED)
   error     String?   @db.Text
   startedAt DateTime?
   endedAt   DateTime?
   createdAt DateTime  @default(now())
+
+  @@index([reportId, sectionId])
 }

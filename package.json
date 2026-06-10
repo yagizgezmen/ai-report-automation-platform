@@ -9,12 +9,17 @@
     "lint": "eslint .",
     "test": "vitest run",
     "db:generate": "prisma generate",
-    "db:push": "prisma db push"
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "prisma db seed",
+    "db:studio": "prisma studio",
+    "db:reset": "prisma migrate reset --force"
   },
   "dependencies": {
     "@prisma/client": "^6.10.0",
     "cheerio": "^1.0.0",
     "docx": "^9.5.1",
+    "dotenv": "^16.5.0",
     "lucide-react": "^0.468.0",
     "mammoth": "^1.9.0",
     "next": "^15.3.3",
@@ -36,6 +41,7 @@
     "postcss": "^8.5.4",
     "prisma": "^6.10.0",
     "tailwindcss": "^4.1.8",
+    "tsx": "^4.20.3",
     "typescript": "^5.8.3",
     "vitest": "^3.2.3"
   }

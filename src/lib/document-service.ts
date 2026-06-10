@@ -16,12 +16,14 @@ export async function extractDocument(file: File): Promise<UploadedDocument> {
   else extractedText = buffer.toString("utf8");
   extractedText = extractedText.replace(/\u0000/g, "").trim();
   if (!extractedText) throw new Error("No readable text could be extracted.");
+  const chunks = chunkText(extractedText);
   return {
     id: randomUUID(),
     fileName: file.name,
     mimeType: file.type,
     size: file.size,
     extractedText,
-    chunks: chunkText(extractedText).length,
+    chunks: chunks.length,
+    chunkContents: chunks,
   };
 }

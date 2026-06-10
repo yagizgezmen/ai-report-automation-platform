@@ -28,7 +28,7 @@ An enterprise-style MVP for producing long-form, evidence-grounded company repor
 
 ## Local setup
 
-Requirements: Node.js 20+, npm, and optionally PostgreSQL with pgvector.
+Requirements: Node.js 20+ and npm. PostgreSQL with pgvector is required for persistent mode.
 
 ```bash
 npm install
@@ -38,7 +38,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-The app starts in demo mode without credentials. It includes a sample report and produces deterministic evidence-aware placeholder drafts. To enable live AI generation, set:
+The app starts in demo mode when `DATABASE_URL` is missing or `DEMO_MODE=true`. Demo mode includes a sample report and uses in-memory persistence. To enable live AI generation, set:
 
 ```env
 OPENAI_API_KEY="..."
@@ -50,16 +50,149 @@ API keys are read only in server-side route handlers and are never exposed to th
 
 ## Database setup
 
-Create a PostgreSQL database with the pgvector extension available, set `DATABASE_URL`, then run:
+The application has two persistence modes:
+
+- `DEMO_MODE=true` or no `DATABASE_URL`: in-memory demo repository.
+- `DEMO_MODE=false` with `DATABASE_URL`: Prisma and PostgreSQL persistence.
+
+### Docker PostgreSQL (recommended)
+
+Requirements: Docker Desktop or another Docker Engine with Compose v2.
+
+The checked-in `docker-compose.yml` uses the official, version-pinned `pgvector/pgvector:0.8.2-pg17` image. It exposes PostgreSQL on port `5432`, includes a healthcheck, and persists data in the `ai-report-postgres-data` volume.
+
+Copy the environment file and set database mode:
+
+```bash
+cp .env.example .env
+```
+
+```env
+POSTGRES_USER="postgres"
+POSTGRES_PASSWORD="postgres"
+POSTGRES_DB="report_automation"
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/report_automation"
+DEMO_MODE="false"
+```
+
+Start PostgreSQL:
+
+```bash
+docker compose up -d
+docker compose ps
+```
+
+Apply migrations and seed the dashboard:
 
 ```bash
 npm run db:generate
+npm run db:migrate
+npm run db:seed
+```
+
+For local prototypes where migration files are not required, synchronize the
+current Prisma schema directly:
+
+```bash
 npm run db:push
 ```
 
-The Prisma schema defines `User`, `Report`, `ReportSection`, `Source`, `UploadedDocument`, `DocumentChunk`, `ChatMessage`, and `GenerationJob`. `DocumentChunk.embedding` is a `vector(1536)` field.
+Verify the database and pgvector extension:
 
-The checked-in MVP uses an in-process repository so the interface can be evaluated immediately without infrastructure. The Prisma schema is the production persistence contract; replacing `src/lib/store.ts` with Prisma queries is the intended deployment step.
+```bash
+docker compose exec postgres pg_isready -U postgres -d report_automation
+docker compose exec postgres psql -U postgres -d report_automation -c "SELECT extversion FROM pg_extension WHERE extname = 'vector';"
+```
+
+Stop the database without deleting data:
+
+```bash
+docker compose down
+```
+
+Delete the container and persistent database volume:
+
+```bash
+docker compose down -v
+```
+
+Port `5432` must be available. If a Homebrew PostgreSQL service is already running on macOS, stop it before starting Docker:
+
+```bash
+brew services stop postgresql@17
+```
+
+### Manual PostgreSQL
+
+Alternatively, create a PostgreSQL database with the pgvector extension available:
+
+```sql
+CREATE DATABASE report_automation;
+\c report_automation
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+Configure `.env`:
+
+```env
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/report_automation"
+DEMO_MODE="false"
+```
+
+Generate the Prisma client and apply migrations:
+
+```bash
+npm run db:generate
+npm run db:migrate
+npm run db:seed
+```
+
+For non-interactive production deployments, use:
+
+```bash
+npx prisma migrate deploy
+```
+
+The Prisma repository persists `User`, `Report`, `ReportSection`, `Source`, `SectionSource`, `UploadedDocument`, `DocumentChunk`, `ChatMessage`, and `GenerationJob`. `DocumentChunk.embedding` is a nullable `vector(1536)` field ready for OpenAI embeddings.
+
+Reports, section edits, sources, uploaded document text/chunks, chat messages, and generation job states survive application restarts in PostgreSQL mode. The health endpoint reports the active mode as `demo` or `postgresql`.
+
+### Persistence architecture
+
+Database access is isolated under `src/lib/repositories`:
+
+- `reportRepository.ts` handles report aggregate reads and report creation/saves.
+- `sectionRepository.ts` maps and updates report sections and source links.
+- `sourceRepository.ts` persists collected web sources.
+- `documentRepository.ts` persists uploaded documents and chunks.
+- `chatRepository.ts` persists report assistant messages.
+- `generationJobRepository.ts` tracks generation job lifecycle.
+
+`src/lib/store.ts` is the application-facing abstraction. It delegates to these repositories in PostgreSQL mode and owns the in-memory fallback only in demo mode. API routes do not import Prisma directly.
+
+### Database commands
+
+```bash
+# Generate the Prisma client
+npm run db:generate
+
+# Synchronize the Prisma schema without creating a migration
+npm run db:push
+
+# Apply pending development migrations
+npm run db:migrate
+
+# Create or refresh the demo user, report, sections, sources, and chat
+npm run db:seed
+
+# Open Prisma Studio at http://localhost:5555
+npm run db:studio
+
+# Drop local data, reapply migrations, and run the seed
+npm run db:reset
+```
+
+The seed is idempotent for the fixed `demo-report` record and does not delete unrelated reports. The seeded report is assigned to `demo@arqive.ai` and appears on the dashboard whenever PostgreSQL mode is active.
 
 ## Evidence behavior
 
@@ -80,6 +213,11 @@ npm run dev
 npm run lint
 npm test
 npm run build
+npm run db:generate
+npm run db:migrate
+npm run db:seed
+npm run db:studio
+npm run db:reset
 ```
 
 Health information is available at `/api/health`.

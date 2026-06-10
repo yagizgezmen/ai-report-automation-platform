@@ -1,6 +1,25 @@
 import { randomUUID } from "crypto";
+import { databaseEnabled } from "@/lib/prisma";
+import {
+  createPersistedReport,
+  findAllReports,
+  findReportById,
+  savePersistedReport,
+} from "@/lib/repositories/reportRepository";
+import { createSource } from "@/lib/repositories/sourceRepository";
+import { createDocument } from "@/lib/repositories/documentRepository";
+import { createChatMessage } from "@/lib/repositories/chatRepository";
+import {
+  createRunningGenerationJob,
+  finishGenerationJob,
+} from "@/lib/repositories/generationJobRepository";
 import { createTemplateSections } from "@/lib/templates";
-import { CreateReportInput, Report, Source, UploadedDocument } from "@/lib/types";
+import {
+  CreateReportInput,
+  Report,
+  Source,
+  UploadedDocument,
+} from "@/lib/types";
 
 const now = new Date();
 const sampleReport: Report = {
@@ -40,22 +59,28 @@ const sampleReport: Report = {
 };
 
 const globalStore = globalThis as unknown as { reportStore?: Map<string, Report> };
-export const reportStore = globalStore.reportStore ?? new Map([[sampleReport.id, sampleReport]]);
-globalStore.reportStore = reportStore;
+const demoStore = globalStore.reportStore ?? new Map([[sampleReport.id, sampleReport]]);
+globalStore.reportStore = demoStore;
 
-export function listReports() {
-  return [...reportStore.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+export function isDemoMode() {
+  return !databaseEnabled;
 }
 
-export function createReport(input: CreateReportInput) {
+export async function listReports(): Promise<Report[]> {
+  if (databaseEnabled) return findAllReports();
+  return [...demoStore.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export async function createReport(input: CreateReportInput): Promise<Report> {
+  if (databaseEnabled) return createPersistedReport(input);
+
   const id = randomUUID();
   const timestamp = new Date().toISOString();
-  const location = [input.city, input.district, input.neighborhood].filter(Boolean).join(" / ");
   const report: Report = {
     id,
     reportType: input.reportType,
     projectName: input.projectName,
-    location,
+    location: [input.city, input.district, input.neighborhood].filter(Boolean).join(" / "),
     parcelInfo: input.parcelInfo || "",
     manualNotes: input.manualNotes || "",
     outputLanguage: input.outputLanguage,
@@ -67,34 +92,61 @@ export function createReport(input: CreateReportInput) {
     createdAt: timestamp,
     updatedAt: timestamp,
   };
-  reportStore.set(id, report);
+  demoStore.set(id, report);
   return report;
 }
 
-export function getReport(id: string) {
-  return reportStore.get(id);
+export async function getReport(id: string): Promise<Report | undefined> {
+  return databaseEnabled ? findReportById(id) : demoStore.get(id);
 }
 
-export function saveReport(report: Report) {
-  report.updatedAt = new Date().toISOString();
-  reportStore.set(report.id, report);
-  return report;
+export async function saveReport(report: Report): Promise<Report> {
+  if (databaseEnabled) return savePersistedReport(report);
+  const saved = { ...report, updatedAt: new Date().toISOString() };
+  demoStore.set(report.id, saved);
+  return saved;
 }
 
-export function addSource(reportId: string, source: Source) {
-  const report = getReport(reportId);
+export async function addSource(reportId: string, source: Source): Promise<Source | undefined> {
+  if (databaseEnabled) return createSource(reportId, source);
+  const report = demoStore.get(reportId);
   if (!report) return;
   report.sources.push(source);
   report.status = "In Progress";
-  saveReport(report);
+  await saveReport(report);
   return source;
 }
 
-export function addDocument(reportId: string, document: UploadedDocument) {
-  const report = getReport(reportId);
+export async function addDocument(
+  reportId: string,
+  document: UploadedDocument,
+): Promise<UploadedDocument | undefined> {
+  if (databaseEnabled) return createDocument(reportId, document);
+  const report = demoStore.get(reportId);
   if (!report) return;
   report.documents.push(document);
   report.status = "In Progress";
-  saveReport(report);
+  await saveReport(report);
   return document;
+}
+
+export async function addChatMessage(
+  reportId: string,
+  sectionId: string | undefined,
+  role: string,
+  content: string,
+) {
+  if (!databaseEnabled) return;
+  await createChatMessage({ reportId, sectionId, role, content });
+}
+
+export async function createGenerationJob(reportId: string, sectionId: string) {
+  if (!databaseEnabled) return randomUUID();
+  const job = await createRunningGenerationJob(reportId, sectionId);
+  return job.id;
+}
+
+export async function completeGenerationJob(jobId: string, error?: string) {
+  if (!databaseEnabled) return;
+  await finishGenerationJob(jobId, error);
 }

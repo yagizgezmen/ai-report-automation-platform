@@ -1,4 +1,4 @@
-import { ReportSection } from "@/lib/types";
+import type { ReportSection } from "@/lib/types";
 
 const templateSections = [
   ["Executive Summary", "A concise overview of the project, key findings, and recommendation.", ["project information", "key findings"], true],

@@ -1,23 +1,26 @@
 import { NextResponse } from "next/server";
+import { apiErrorResponse } from "@/lib/api-error";
 import { collectSource } from "@/lib/source-service";
-import { createReport, listReports, saveReport } from "@/lib/store";
+import { addSource, createReport, getReport, listReports } from "@/lib/store";
 import { createReportSchema } from "@/lib/validation";
 
 export async function GET() {
-  return NextResponse.json(listReports());
+  try {
+    return NextResponse.json(await listReports());
+  } catch (error) {
+    return apiErrorResponse(error, "Could not load reports.");
+  }
 }
 
 export async function POST(request: Request) {
   try {
     const input = createReportSchema.parse(await request.json());
-    const report = createReport(input);
+    const report = await createReport(input);
     const results = await Promise.allSettled(input.sourceUrls.map(collectSource));
-    report.sources = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
-    if (report.sources.length) report.status = "In Progress";
-    saveReport(report);
-    return NextResponse.json(report, { status: 201 });
+    const sources = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
+    await Promise.all(sources.map((source) => addSource(report.id, source)));
+    return NextResponse.json(await getReport(report.id), { status: 201 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Invalid report data.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return apiErrorResponse(error, "Could not create report.", 400);
   }
 }

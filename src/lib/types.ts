@@ -18,6 +18,7 @@ export interface UploadedDocument {
   size: number;
   extractedText: string;
   chunks: number;
+  chunkContents?: string[];
 }
 
 export interface ReportSection {
