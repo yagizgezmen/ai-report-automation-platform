@@ -1,4 +1,3 @@
-import { randomUUID } from "crypto";
 import { databaseEnabled } from "@/lib/prisma";
 import {
   createPersistedReport,
@@ -13,7 +12,6 @@ import {
   createRunningGenerationJob,
   finishGenerationJob,
 } from "@/lib/repositories/generationJobRepository";
-import { createTemplateSections } from "@/lib/templates";
 import {
   CreateReportInput,
   Report,
@@ -21,46 +19,9 @@ import {
   UploadedDocument,
 } from "@/lib/types";
 
-const now = new Date();
-const sampleReport: Report = {
-  id: "demo-report",
-  reportType: "Planning & Development Report",
-  projectName: "Kadıköy Coastal Planning Assessment",
-  location: "Istanbul / Kadıköy / Fenerbahçe",
-  parcelInfo: "Block 348, Parcels 12–15",
-  manualNotes: "Focus on planning compatibility, transport access, and public realm impact.",
-  outputLanguage: "English",
-  desiredLength: 65,
-  status: "Needs Review",
-  sections: createTemplateSections().map((section, index) => ({
-    ...section,
-    content: index === 0
-      ? "This report evaluates the planning context and development considerations for the subject properties in Fenerbahçe, Kadıköy. The assessment consolidates project information, official planning material, and company observations into a structured basis for decision-making [S1].\n\nThe available evidence indicates that the site benefits from an established urban setting and access to regional transport connections. Detailed confirmation of current plan notes and parcel-specific restrictions remains necessary before a final development position is adopted [Needs manual review]."
-      : index === 1
-        ? "The project concerns a planning and development assessment for Block 348, Parcels 12–15 in the Fenerbahçe neighborhood of Kadıköy, Istanbul. The requested scope is to establish the applicable administrative context, summarize source material, and provide a professional company assessment."
-        : "",
-    reviewStatus: index < 2 ? "Generated" : section.reviewStatus,
-    confidence: index === 0 ? "Medium" : index === 1 ? "High" : "Low",
-    sourceIds: index === 0 ? ["source-1"] : [],
-    missingWarnings: index === 0 ? ["Parcel-specific plan notes require confirmation."] : section.missingWarnings,
-    unsupportedClaims: index === 0 ? ["The site benefits from regional transport connections."] : [],
-  })),
-  sources: [{
-    id: "source-1",
-    title: "Kadıköy Municipality – Planning Services",
-    url: "https://www.kadikoy.bel.tr/",
-    fetchedAt: now.toISOString(),
-    content: "Official municipality source supplied for planning and administrative context.",
-    isOfficial: true,
-  }],
-  documents: [],
-  createdAt: new Date(now.getTime() - 86400000 * 7).toISOString(),
-  updatedAt: now.toISOString(),
-};
-
-const globalStore = globalThis as unknown as { reportStore?: Map<string, Report> };
-const demoStore = globalStore.reportStore ?? new Map([[sampleReport.id, sampleReport]]);
-globalStore.reportStore = demoStore;
+async function demoStore() {
+  return import("@/lib/demo-store");
+}
 
 export function isDemoMode() {
   return !databaseEnabled;
@@ -68,53 +29,28 @@ export function isDemoMode() {
 
 export async function listReports(): Promise<Report[]> {
   if (databaseEnabled) return findAllReports();
-  return [...demoStore.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return (await demoStore()).listDemoReports();
 }
 
 export async function createReport(input: CreateReportInput): Promise<Report> {
   if (databaseEnabled) return createPersistedReport(input);
-
-  const id = randomUUID();
-  const timestamp = new Date().toISOString();
-  const report: Report = {
-    id,
-    reportType: input.reportType,
-    projectName: input.projectName,
-    location: [input.city, input.district, input.neighborhood].filter(Boolean).join(" / "),
-    parcelInfo: input.parcelInfo || "",
-    manualNotes: input.manualNotes || "",
-    outputLanguage: input.outputLanguage,
-    desiredLength: input.desiredLength,
-    status: "Draft",
-    sections: createTemplateSections().map((section) => ({ ...section, id: randomUUID() })),
-    sources: [],
-    documents: [],
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
-  demoStore.set(id, report);
-  return report;
+  return (await demoStore()).createDemoReport(input);
 }
 
 export async function getReport(id: string): Promise<Report | undefined> {
-  return databaseEnabled ? findReportById(id) : demoStore.get(id);
+  return databaseEnabled
+    ? findReportById(id)
+    : (await demoStore()).getDemoReport(id);
 }
 
 export async function saveReport(report: Report): Promise<Report> {
   if (databaseEnabled) return savePersistedReport(report);
-  const saved = { ...report, updatedAt: new Date().toISOString() };
-  demoStore.set(report.id, saved);
-  return saved;
+  return (await demoStore()).saveDemoReport(report);
 }
 
 export async function addSource(reportId: string, source: Source): Promise<Source | undefined> {
   if (databaseEnabled) return createSource(reportId, source);
-  const report = demoStore.get(reportId);
-  if (!report) return;
-  report.sources.push(source);
-  report.status = "In Progress";
-  await saveReport(report);
-  return source;
+  return (await demoStore()).addDemoSource(reportId, source);
 }
 
 export async function addDocument(
@@ -122,12 +58,7 @@ export async function addDocument(
   document: UploadedDocument,
 ): Promise<UploadedDocument | undefined> {
   if (databaseEnabled) return createDocument(reportId, document);
-  const report = demoStore.get(reportId);
-  if (!report) return;
-  report.documents.push(document);
-  report.status = "In Progress";
-  await saveReport(report);
-  return document;
+  return (await demoStore()).addDemoDocument(reportId, document);
 }
 
 export async function addChatMessage(
@@ -141,7 +72,7 @@ export async function addChatMessage(
 }
 
 export async function createGenerationJob(reportId: string, sectionId: string) {
-  if (!databaseEnabled) return randomUUID();
+  if (!databaseEnabled) return `demo-${reportId}-${sectionId}-${Date.now()}`;
   const job = await createRunningGenerationJob(reportId, sectionId);
   return job.id;
 }

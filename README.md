@@ -168,7 +168,7 @@ Database access is isolated under `src/lib/repositories`:
 - `chatRepository.ts` persists report assistant messages.
 - `generationJobRepository.ts` tracks generation job lifecycle.
 
-`src/lib/store.ts` is the application-facing abstraction. It delegates to these repositories in PostgreSQL mode and owns the in-memory fallback only in demo mode. API routes do not import Prisma directly.
+`src/lib/store.ts` is the application-facing abstraction. It delegates to these repositories in PostgreSQL mode and dynamically loads `src/lib/demo-store.ts` only in demo mode. API routes do not import Prisma directly.
 
 ### Database commands
 
