@@ -35,18 +35,40 @@ export default function ReportTemplatesPage() {
     [templates, activeId],
   );
 
+  function buildTemplateName() {
+    const candidate = newTemplateName.trim();
+    if (candidate) return candidate;
+    return `${t("untitledTemplate")} ${templates.length + 1}`;
+  }
+
+  function buildStarterTemplatePayload() {
+    const templateName = buildTemplateName();
+    return {
+      name: templateName,
+      description: t("untitledTemplateDescription"),
+      sections: [
+        { title: t("starterSectionIntro"), description: t("starterSectionIntroDescription"), sortOrder: 0 },
+        { title: t("starterSectionAnalysis"), description: t("starterSectionAnalysisDescription"), sortOrder: 1 },
+        { title: t("starterSectionConclusion"), description: t("starterSectionConclusionDescription"), sortOrder: 2 },
+      ],
+      sources: [],
+    };
+  }
+
   function updateActiveTemplate(mutator: (template: ReportType) => ReportType) {
     setTemplates((items) => items.map((item) => item.id === activeId ? mutator(item) : item));
   }
 
-  async function createTemplate() {
-    if (!newTemplateName.trim()) return;
+  async function createTemplate(options?: { useStarterTemplate?: boolean }) {
     setBusy("create");
     setMessage("");
+    const payload = options?.useStarterTemplate
+      ? buildStarterTemplatePayload()
+      : { name: buildTemplateName(), description: "" };
     const response = await fetch("/api/report-types", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newTemplateName.trim(), description: "" }),
+      body: JSON.stringify(payload),
     });
     const body = await response.json();
     if (!response.ok) {
@@ -126,13 +148,19 @@ export default function ReportTemplatesPage() {
                 placeholder={t("createTemplatePlaceholder")}
                 className="field"
               />
-              <button onClick={createTemplate} disabled={busy === "create"} className="btn-primary shrink-0 px-3">
+              <button onClick={() => createTemplate()} disabled={busy === "create"} className="btn-primary shrink-0 px-3" aria-label={t("createReportType")}>
                 {busy === "create" ? <Loader2 size={15} className="animate-spin" /> : <Plus size={16} />}
               </button>
             </div>
+            <p className="mt-2 text-xs text-slate-500">{t("templateCreateHint")}</p>
             <div className="mt-5 space-y-2">
               {busy === "load" && <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" /> {t("loadingTemplates")}</div>}
               {!busy && !templates.length && <div className="rounded-xl bg-slate-50 p-6 text-sm text-slate-500">{t("noReportTypes")}</div>}
+              {!busy && !templates.length && (
+                <button onClick={() => createTemplate({ useStarterTemplate: true })} disabled={busy === "create"} className="mt-3 btn-primary w-full">
+                  {t("createFirstTemplate")}
+                </button>
+              )}
               {templates.map((template) => (
                 <button
                   key={template.id}

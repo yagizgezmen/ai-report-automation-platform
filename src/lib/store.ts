@@ -100,9 +100,24 @@ export async function getReportType(id: string): Promise<ReportType | undefined>
   return (await demoStore()).getDemoReportType(id);
 }
 
-export async function addReportType(name: string, description: string): Promise<ReportType> {
-  if (databaseEnabled) return createReportType(name, description);
-  return (await demoStore()).createDemoReportType(name, description);
+export async function addReportType(
+  name: string,
+  description: string,
+  sections: ReportType["sections"] = [],
+  sources: ReportType["sources"] = [],
+): Promise<ReportType> {
+  if (databaseEnabled) {
+    const created = await createReportType(name, description);
+    if (!sections.length && !sources.length) return created;
+    return saveReportType({
+      ...created,
+      sections,
+      sources,
+    });
+  }
+  const created = (await demoStore()).createDemoReportType(name, description);
+  if (!sections.length && !sources.length) return created;
+  return (await demoStore()).saveDemoReportType({ ...created, sections, sources });
 }
 
 export async function updateReportType(template: ReportType): Promise<ReportType> {

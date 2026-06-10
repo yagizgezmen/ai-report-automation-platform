@@ -73,15 +73,25 @@ export async function findReportById(id: string): Promise<Report | undefined> {
 }
 
 export async function createPersistedReport(input: CreateReportInput): Promise<Report> {
-  const reportType = await getPrismaClient().reportType.findUnique({
-    where: { id: input.reportTypeId },
-    include: { sections: { orderBy: { sortOrder: "asc" } } },
-  });
-  if (!reportType) throw new Error("Report type not found.");
+  const reportType = input.reportTypeId
+    ? await getPrismaClient().reportType.findUnique({
+        where: { id: input.reportTypeId },
+        include: { sections: { orderBy: { sortOrder: "asc" } } },
+      })
+    : null;
+
+  const reportTypeName = reportType?.name || input.reportTypeName || "Custom Report";
+  const sectionConfigs = reportType?.sections.map((section) => ({
+    id: section.id,
+    title: section.title,
+    description: section.description,
+    sortOrder: section.sortOrder,
+  }));
+
   const record = await getPrismaClient().report.create({
     data: {
-      reportTypeId: reportType.id,
-      reportType: reportType.name,
+      reportTypeId: reportType?.id || null,
+      reportType: reportTypeName,
       projectName: input.projectName,
       city: input.city,
       district: input.district || null,
@@ -92,12 +102,7 @@ export async function createPersistedReport(input: CreateReportInput): Promise<R
       allowWebResearch: input.allowWebResearch,
       desiredLength: input.desiredLength,
       sections: {
-        create: createTemplateSections(reportType.sections.map((section) => ({
-          id: section.id,
-          title: section.title,
-          description: section.description,
-          sortOrder: section.sortOrder,
-        }))).map(sectionCreateData),
+        create: createTemplateSections(sectionConfigs).map(sectionCreateData),
       },
     },
     include: reportInclude,

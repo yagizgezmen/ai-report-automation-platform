@@ -21,13 +21,12 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const input = createReportSchema.parse(await request.json());
-    const reportType = await getReportType(input.reportTypeId);
-    if (!reportType) return NextResponse.json({ error: "Report type not found." }, { status: 404 });
+    const reportType = input.reportTypeId ? await getReportType(input.reportTypeId) : undefined;
     const report = await createReport(input);
     const results = await Promise.allSettled(
-      reportType.sources.map((source) => collectSource(source.url, {
+      (reportType?.sources || []).map((source) => collectSource(source.url, {
         origin: "configured",
-        searchQuery: reportType.name,
+        searchQuery: reportType?.name || input.reportTypeName || "Custom Report",
       })),
     );
     const sources = results.filter((result) => result.status === "fulfilled").map((result) => result.value);

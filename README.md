@@ -40,7 +40,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-The app starts in demo mode when `DATABASE_URL` is missing or `DEMO_MODE=true`. Demo mode includes a sample report and uses in-memory persistence. To enable live AI generation, set:
+The app starts in demo mode only when `DATABASE_URL` is missing or `DEMO_MODE=true`. If `DATABASE_URL` is present and `DEMO_MODE` is not `"true"`, the application uses PostgreSQL persistence and does not fall back to the in-memory store.
 
 ```env
 OPENAI_API_KEY="..."
@@ -214,17 +214,17 @@ npm run db:push
 # Apply pending development migrations
 npm run db:migrate
 
-# Create or refresh the demo user, report, sections, sources, and chat
+# Create demo data only when the database is empty
 npm run db:seed
 
 # Open Prisma Studio at http://localhost:5555
 npm run db:studio
 
-# Drop local data, reapply migrations, and run the seed
+# WARNING: destructive. Drops local data, reapplies migrations, and runs the seed
 npm run db:reset
 ```
 
-The seed is idempotent for the fixed `demo-report` record and does not delete unrelated reports. The seeded report is assigned to `demo@arqive.ai` and appears on the dashboard whenever PostgreSQL mode is active.
+The seed is non-destructive. It creates default report types only when none exist, and creates the demo report only when there are no existing reports. It does not delete user reports, templates, documents, or sources.
 
 ## Evidence behavior
 

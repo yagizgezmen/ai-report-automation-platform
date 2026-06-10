@@ -84,14 +84,13 @@ export function listDemoReports(): Report[] {
 }
 
 export function createDemoReport(input: CreateReportInput): Report {
-  const template = reportTypes.get(input.reportTypeId);
-  if (!template) throw new Error("Report type not found.");
+  const template = input.reportTypeId ? reportTypes.get(input.reportTypeId) : undefined;
   const id = randomUUID();
   const timestamp = new Date().toISOString();
   const report: Report = {
     id,
-    reportTypeId: template.id,
-    reportType: template.name,
+    reportTypeId: template?.id,
+    reportType: template?.name || input.reportTypeName || "Custom Report",
     projectName: input.projectName,
     location: [input.city, input.district, input.neighborhood].filter(Boolean).join(" / "),
     parcelInfo: input.parcelInfo || "",
@@ -100,7 +99,7 @@ export function createDemoReport(input: CreateReportInput): Report {
     allowWebResearch: input.allowWebResearch,
     desiredLength: input.desiredLength,
     status: "Draft",
-    sections: createTemplateSections(template.sections).map((section) => ({ ...section, id: randomUUID() })),
+    sections: createTemplateSections(template?.sections).map((section) => ({ ...section, id: randomUUID() })),
     sources: [],
     documents: [],
     createdAt: timestamp,

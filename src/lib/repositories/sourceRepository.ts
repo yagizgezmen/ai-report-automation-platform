@@ -12,7 +12,12 @@ export function toDomainSource(source: SourceRecord): Source {
     fetchedAt: source.fetchedAt.toISOString(),
     content: source.content,
     isOfficial: source.isOfficial,
-    origin: source.origin === "AI_DISCOVERED" ? "ai-discovered" : source.origin === "MANUAL" ? "manual" : "configured",
+    origin:
+      source.origin === "AI_DISCOVERED"
+        ? "ai-discovered"
+        : source.origin === "USER_PROVIDED"
+          ? "manual"
+          : "configured",
     searchQuery: source.searchQuery || undefined,
   };
 }
@@ -26,7 +31,7 @@ export async function createSource(reportId: string, source: Source): Promise<So
   const origin = source.origin === "ai-discovered"
     ? "AI_DISCOVERED"
     : source.origin === "manual"
-      ? "MANUAL"
+      ? "USER_PROVIDED"
       : "CONFIGURED";
 
   if (existing) {

@@ -31,9 +31,15 @@ enum JobStatus {
 }
 
 enum SourceOrigin {
+  USER_PROVIDED
   CONFIGURED
-  MANUAL
   AI_DISCOVERED
+}
+
+enum SourcePriority {
+  HIGH
+  MEDIUM
+  LOW
 }
 
 model User {
@@ -84,6 +90,12 @@ model ReportType {
   sources     ReportTypeSource[]
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
+  defaultLanguage        String   @default("Turkish")
+  defaultReportLength    Int      @default(65)
+  enableDocxExport       Boolean  @default(true)
+  enablePdfExport        Boolean  @default(false)
+  includeCoverPage       Boolean  @default(true)
+  includeTableOfContents Boolean  @default(true)
 }
 
 model ReportTypeSection {
@@ -93,8 +105,11 @@ model ReportTypeSection {
   title        String
   description  String     @db.Text
   sortOrder    Int
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  requiredInputs Json
+  sourceRequired Boolean  @default(false)
+  aiPrompt      String    @default("") @db.Text
+  isRequired    Boolean   @default(true)
+  isEnabled     Boolean   @default(true)
 
   @@unique([reportTypeId, sortOrder])
   @@index([reportTypeId, sortOrder])
@@ -107,8 +122,7 @@ model ReportTypeSource {
   name       String
   url        String
   description String?  @db.Text
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  priority   SourcePriority @default(MEDIUM)
 
   @@unique([reportTypeId, url])
   @@index([reportTypeId])

@@ -9,43 +9,62 @@ const DEMO_REPORT_ID = "demo-report";
 const DEMO_SOURCE_IDS = ["demo-source-municipality", "demo-source-ministry"];
 
 async function main() {
-  const template = DEFAULT_REPORT_TEMPLATES[0];
-  const sections = createTemplateSections(template.sections.map((section, index) => ({
-    id: `seed-section-${index + 1}`,
-    title: section.title,
-    description: section.description,
-    sortOrder: index,
-  })));
-
   await prisma.$transaction(async (tx) => {
-    await tx.reportTypeSection.deleteMany();
-    await tx.reportTypeSource.deleteMany();
-    await tx.reportType.deleteMany();
+    const existingReportTypeCount = await tx.reportType.count();
+    const existingReportCount = await tx.report.count();
 
     const createdTypes = [];
-    for (const item of DEFAULT_REPORT_TEMPLATES) {
-      createdTypes.push(await tx.reportType.create({
-        data: {
-          name: item.name,
-          description: item.description,
-          sections: {
-            create: item.sections.map((section, index) => ({
-              title: section.title,
-              description: section.description,
-              sortOrder: index,
-            })),
+    if (existingReportTypeCount === 0) {
+      for (const item of DEFAULT_REPORT_TEMPLATES) {
+        createdTypes.push(await tx.reportType.create({
+          data: {
+            name: item.name,
+            description: item.description,
+            sections: {
+              create: item.sections.map((section, index) => ({
+                title: section.title,
+                description: section.description,
+                sortOrder: index,
+                requiredInputs: [],
+                sourceRequired: false,
+                aiPrompt: "",
+                isRequired: true,
+                isEnabled: true,
+              })),
+            },
+            sources: {
+              create: item.sources.map((source) => ({
+                name: source.name,
+                url: source.url,
+                description: source.description,
+                priority: "MEDIUM",
+              })),
+            },
           },
-          sources: {
-            create: item.sources.map((source) => ({
-              name: source.name,
-              url: source.url,
-              description: source.description,
-            })),
-          },
-        },
-      }));
+        }));
+      }
     }
-    const primaryReportType = createdTypes[0];
+
+    if (existingReportCount > 0) {
+      console.log("Seed skipped demo data creation because existing reports were found.");
+      return;
+    }
+
+    const template = DEFAULT_REPORT_TEMPLATES[0];
+    const primaryReportType = createdTypes[0]
+      || await tx.reportType.findFirst({ orderBy: { createdAt: "asc" } });
+
+    if (!primaryReportType) {
+      console.log("Seed skipped demo data creation because no report types were available.");
+      return;
+    }
+
+    const sections = createTemplateSections(template.sections.map((section, index) => ({
+      id: `seed-section-${index + 1}`,
+      title: section.title,
+      description: section.description,
+      sortOrder: index,
+    })));
 
     const demoUser = await tx.user.upsert({
       where: { email: "demo@arqive.ai" },
@@ -57,7 +76,11 @@ async function main() {
       },
     });
 
-    await tx.report.deleteMany({ where: { id: DEMO_REPORT_ID } });
+    const existingDemoReport = await tx.report.findUnique({ where: { id: DEMO_REPORT_ID } });
+    if (existingDemoReport) {
+      console.log("Seed skipped demo report creation because demo-report already exists.");
+      return;
+    }
 
     await tx.report.create({
       data: {
@@ -144,7 +167,7 @@ async function main() {
     });
   });
 
-  console.log(`Seed completed: ${DEMO_USER_ID}, ${DEMO_REPORT_ID}, ${sections.length} sections.`);
+  console.log(`Seed completed safely for ${DEMO_USER_ID} / ${DEMO_REPORT_ID}.`);
 }
 
 main()

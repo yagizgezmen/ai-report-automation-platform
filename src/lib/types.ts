@@ -58,7 +58,8 @@ export interface Report {
 }
 
 export interface CreateReportInput {
-  reportTypeId: string;
+  reportTypeId?: string;
+  reportTypeName?: string;
   projectName: string;
   city: string;
   district?: string;

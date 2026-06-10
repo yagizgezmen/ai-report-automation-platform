@@ -23,11 +23,8 @@ export default function NewReportPage() {
       .then(async (response) => {
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || "Rapor türleri yüklenemedi.");
-        const availableTemplates = body.filter((template: ReportType) =>
-          template.sections.length > 0 || template.sources.length > 0 || template.description,
-        );
-        setReportTypes(availableTemplates);
-        setSelectedReportTypeId((current) => current || availableTemplates[0]?.id || "");
+        setReportTypes(body);
+        setSelectedReportTypeId((current) => current || body[0]?.id || "");
       })
       .catch((caught) => setError(caught.message))
       .finally(() => setLoadingTypes(false));
@@ -44,6 +41,7 @@ export default function NewReportPage() {
       body: JSON.stringify({
         ...payload,
         desiredLength: Number(payload.desiredLength),
+        reportTypeName: reportTypes.find((type) => type.id === selectedReportTypeId)?.name || "Custom Report",
         allowWebResearch,
       }),
     });
@@ -66,7 +64,8 @@ export default function NewReportPage() {
             <FormSection icon={<FileText size={18} />} title={t("reportDetails")}>
               <div className="grid grid-cols-2 gap-4">
                 <Field label={t("reportType")}>
-                  <select name="reportTypeId" className="field" required value={selectedReportTypeId} onChange={(event) => setSelectedReportTypeId(event.target.value)}>
+                  <select name="reportTypeId" className="field" value={selectedReportTypeId} onChange={(event) => setSelectedReportTypeId(event.target.value)}>
+                    {!reportTypes.length && <option value="">{t("noReportTypes")}</option>}
                     {reportTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
                   </select>
                 </Field>
@@ -107,7 +106,7 @@ export default function NewReportPage() {
             </FormSection>
             {error && <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
             <div className="flex justify-end">
-              <button disabled={saving || loadingTypes || !reportTypes.length} className="btn-primary flex items-center gap-2 px-6">
+              <button disabled={saving || loadingTypes} className="btn-primary flex items-center gap-2 px-6">
                 {saving ? t("creatingWorkspace") : t("createReport")} <ArrowRight size={16} />
               </button>
             </div>
@@ -128,6 +127,7 @@ export default function NewReportPage() {
           </aside>
         </form>
         {loadingTypes && <div className="mt-4 flex items-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" /> {t("loadingTemplates")}</div>}
+        {!loadingTypes && !reportTypes.length && <div className="mt-4 rounded-lg bg-amber-50 p-4 text-sm text-amber-800">{t("createFirstTemplatePrompt")}</div>}
       </main>
     </AppShell>
   );

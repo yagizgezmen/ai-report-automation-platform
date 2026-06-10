@@ -5,7 +5,7 @@ import { ReportType } from "@/lib/types";
 
 const reportTypeInclude = {
   sections: { orderBy: { sortOrder: "asc" as const } },
-  sources: { orderBy: { createdAt: "asc" as const } },
+  sources: { orderBy: { name: "asc" as const } },
 } satisfies Prisma.ReportTypeInclude;
 
 type ReportTypeRecord = Prisma.ReportTypeGetPayload<{ include: typeof reportTypeInclude }>;
@@ -48,6 +48,11 @@ export async function ensureDefaultReportTypes() {
                 title: section.title,
                 description: section.description,
                 sortOrder: index,
+                requiredInputs: [],
+                sourceRequired: false,
+                aiPrompt: "",
+                isRequired: true,
+                isEnabled: true,
               })),
             },
             sources: {
@@ -55,6 +60,7 @@ export async function ensureDefaultReportTypes() {
                 name: source.name,
                 url: source.url,
                 description: source.description,
+                priority: "MEDIUM",
               })),
             },
           },
@@ -69,6 +75,11 @@ export async function ensureDefaultReportTypes() {
             title: section.title,
             description: section.description,
             sortOrder: index,
+            requiredInputs: [],
+            sourceRequired: false,
+            aiPrompt: "",
+            isRequired: true,
+            isEnabled: true,
           })),
         });
       }
@@ -80,6 +91,7 @@ export async function ensureDefaultReportTypes() {
             name: source.name,
             url: source.url,
             description: source.description,
+            priority: "MEDIUM",
           })),
         });
       }
@@ -91,7 +103,7 @@ export async function findAllReportTypes(): Promise<ReportType[]> {
   await ensureDefaultReportTypes();
   const records = await getPrismaClient().reportType.findMany({
     include: reportTypeInclude,
-    orderBy: { createdAt: "asc" },
+    orderBy: { name: "asc" },
   });
   return records.map(toDomainReportType);
 }
@@ -108,6 +120,37 @@ export async function findReportTypeById(id: string): Promise<ReportType | undef
 export async function createReportType(name: string, description: string) {
   const record = await getPrismaClient().reportType.create({
     data: { name, description },
+    include: reportTypeInclude,
+  });
+  return toDomainReportType(record);
+}
+
+export async function createFullReportType(template: Omit<ReportType, "id">) {
+  const record = await getPrismaClient().reportType.create({
+    data: {
+      name: template.name,
+      description: template.description || null,
+      sections: {
+        create: template.sections.map((section, index) => ({
+          title: section.title,
+          description: section.description,
+          sortOrder: section.sortOrder ?? index,
+          requiredInputs: [],
+          sourceRequired: false,
+          aiPrompt: "",
+          isRequired: true,
+          isEnabled: true,
+        })),
+      },
+      sources: {
+        create: template.sources.map((source) => ({
+          name: source.name,
+          url: source.url,
+          description: source.description || null,
+          priority: "MEDIUM",
+        })),
+      },
+    },
     include: reportTypeInclude,
   });
   return toDomainReportType(record);
@@ -142,6 +185,11 @@ export async function saveReportType(template: ReportType) {
             title: section.title,
             description: section.description,
             sortOrder: index,
+            requiredInputs: [],
+            sourceRequired: false,
+            aiPrompt: "",
+            isRequired: true,
+            isEnabled: true,
           },
         });
       } else {
@@ -151,6 +199,11 @@ export async function saveReportType(template: ReportType) {
             title: section.title,
             description: section.description,
             sortOrder: index,
+            requiredInputs: [],
+            sourceRequired: false,
+            aiPrompt: "",
+            isRequired: true,
+            isEnabled: true,
           },
         });
       }
@@ -174,6 +227,7 @@ export async function saveReportType(template: ReportType) {
             name: source.name,
             url: source.url,
             description: source.description || null,
+            priority: "MEDIUM",
           },
         });
       } else {
@@ -183,6 +237,7 @@ export async function saveReportType(template: ReportType) {
             name: source.name,
             url: source.url,
             description: source.description || null,
+            priority: "MEDIUM",
           },
         });
       }
