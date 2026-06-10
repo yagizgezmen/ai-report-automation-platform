@@ -9,9 +9,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const { id } = await context.params;
     if (!await getReport(id)) return NextResponse.json({ error: "Report not found." }, { status: 404 });
     const { url } = sourceSchema.parse(await request.json());
-    const source = await collectSource(url);
-    await addSource(id, source);
-    return NextResponse.json(source, { status: 201 });
+    const source = await collectSource(url, { origin: "manual" });
+    const saved = await addSource(id, source);
+    return NextResponse.json(saved || source, { status: 201 });
   } catch (error) {
     return apiErrorResponse(error, "Could not fetch source.", 400);
   }

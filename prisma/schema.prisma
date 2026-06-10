@@ -30,6 +30,12 @@ enum JobStatus {
   FAILED
 }
 
+enum SourceOrigin {
+  CONFIGURED
+  MANUAL
+  AI_DISCOVERED
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
@@ -101,14 +107,16 @@ model ReportSection {
 }
 
 model Source {
-  id          String          @id @default(cuid())
-  reportId    String
-  report      Report          @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  title       String
-  url         String
-  fetchedAt   DateTime        @default(now())
-  content     String          @db.Text
-  isOfficial  Boolean         @default(false)
+  id           String          @id @default(cuid())
+  reportId     String
+  report       Report          @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  title        String
+  url          String
+  fetchedAt    DateTime        @default(now())
+  content      String          @db.Text
+  isOfficial   Boolean         @default(false)
+  origin       SourceOrigin    @default(CONFIGURED)
+  searchQuery  String?
   sectionLinks SectionSource[]
 
   @@index([reportId])

@@ -66,7 +66,14 @@ export function ReportEditor({ reportId }: { reportId: string }) {
     });
     const body = await response.json();
     if (!response.ok) setError(body.error || (language === "tr" ? "İçerik oluşturulamadı." : "Generation failed."));
-    else setReport({ ...report, status: body.reportStatus, sections: report.sections.map((item) => item.id === section.id ? body.section : item) });
+    else {
+      setReport({
+        ...report,
+        status: body.reportStatus,
+        sources: mergeSources(report.sources, body.discoveredSources || []),
+        sections: report.sections.map((item) => item.id === section.id ? body.section : item),
+      });
+    }
     setBusy("");
   }
 
@@ -80,6 +87,9 @@ export function ReportEditor({ reportId }: { reportId: string }) {
     });
     const body = await response.json();
     setChat((items) => [...items, { role: "assistant", text: body.reply || body.error, proposedContent: body.proposedContent }]);
+    if (response.ok && body.discoveredSources?.length) {
+      setReport((current) => current ? { ...current, sources: mergeSources(current.sources, body.discoveredSources) } : current);
+    }
     setBusy("");
   }
 
@@ -119,6 +129,9 @@ export function ReportEditor({ reportId }: { reportId: string }) {
     [t("convertTable"), language === "tr" ? "Bu bölümü tabloya dönüştür" : "Convert this section into a table"],
     [t("officialOnly"), language === "tr" ? "Yalnızca resmî kaynakları kullan" : "Use only official sources"],
   ];
+  const configuredSources = report.sources.filter((source) => source.origin === "configured");
+  const aiDiscoveredSources = report.sources.filter((source) => source.origin === "ai-discovered");
+  const manualSources = report.sources.filter((source) => source.origin === "manual");
 
   return (
     <div className="h-screen overflow-hidden bg-white">
@@ -249,7 +262,24 @@ export function ReportEditor({ reportId }: { reportId: string }) {
               <input ref={fileRef} type="file" accept=".pdf,.docx,.txt" onChange={upload} hidden />
               <button onClick={() => fileRef.current?.click()} className="mb-5 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 p-3 text-[10px] font-bold text-slate-600"><Upload size={14} /> {busy === "upload" ? t("extractingText") : t("uploadFiles")}</button>
               <div className="space-y-2">
-                {report.sources.map((source, index) => <EvidenceItem key={source.id} icon={<Globe2 size={15} />} title={`[S${index + 1}] ${source.title}`} detail={source.isOfficial ? t("officialWebSource") : t("webSource")} url={source.url} />)}
+                <EvidenceGroup
+                  title={t("configuredSources")}
+                  sources={configuredSources}
+                  reportSources={report.sources}
+                  t={t}
+                />
+                <EvidenceGroup
+                  title={t("aiDiscoveredSources")}
+                  sources={aiDiscoveredSources}
+                  reportSources={report.sources}
+                  t={t}
+                />
+                <EvidenceGroup
+                  title={t("manualSources")}
+                  sources={manualSources}
+                  reportSources={report.sources}
+                  t={t}
+                />
                 {report.documents.map((document) => <EvidenceItem key={document.id} icon={<File size={15} />} title={document.fileName} detail={t("indexedChunks", { count: document.chunks })} />)}
                 {!report.sources.length && !report.documents.length && <div className="rounded-lg bg-slate-50 p-5 text-center text-[10px] text-slate-500">{t("noEvidence")}</div>}
               </div>
@@ -264,7 +294,11 @@ export function ReportEditor({ reportId }: { reportId: string }) {
                 {section.missingWarnings.map((item) => <ReviewItem key={item} text={item} />)}
               </ReviewBlock>
               <ReviewBlock title={t("usedSources")} count={section.sourceIds.length} color="green">
-                {section.sourceIds.map((id) => <ReviewItem key={id} text={report.sources.find((source) => source.id === id)?.title || id} />)}
+                {section.sourceIds.map((id) => {
+                  const source = report.sources.find((item) => item.id === id);
+                  const label = source ? `${source.title} · ${sourceOriginLabel(source.origin, t)}` : id;
+                  return <ReviewItem key={id} text={label} />;
+                })}
               </ReviewBlock>
               {!section.unsupportedClaims.length && !section.missingWarnings.length && <div className="rounded-xl bg-emerald-50 p-4 text-[11px] leading-5 text-emerald-800"><CheckCircle2 className="mb-2" size={18} />{t("noWarnings")}</div>}
             </div>
@@ -278,6 +312,35 @@ export function ReportEditor({ reportId }: { reportId: string }) {
 function TabButton({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
   return <button onClick={onClick} className={`flex items-center justify-center gap-1.5 border-b-2 py-3 text-[9px] font-bold ${active ? "border-blue-600 text-blue-600" : "border-transparent text-slate-400"}`}>{icon}{label}</button>;
 }
+function EvidenceGroup({
+  title,
+  sources,
+  reportSources,
+  t,
+}: {
+  title: string;
+  sources: Report["sources"];
+  reportSources: Report["sources"];
+  t: ReturnType<typeof useLanguage>["t"];
+}) {
+  if (!sources.length) return null;
+  return (
+    <div className="mb-4">
+      <div className="mb-2 text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">{title}</div>
+      <div className="space-y-2">
+        {sources.map((source) => (
+          <EvidenceItem
+            key={source.id}
+            icon={<Globe2 size={15} />}
+            title={`[S${reportSources.findIndex((item) => item.id === source.id) + 1}] ${source.title}`}
+            detail={sourceDetail(source, t)}
+            url={source.url}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
 function EvidenceItem({ icon, title, detail, url }: { icon: React.ReactNode; title: string; detail: string; url?: string }) {
   return <div className="rounded-lg border border-slate-200 p-3"><div className="flex items-start gap-2"><span className="mt-0.5 text-blue-600">{icon}</span><div className="min-w-0 flex-1"><div className="truncate text-[10px] font-bold">{title}</div><div className="mt-1 text-[9px] text-slate-400">{detail}</div></div>{url && <a href={url} target="_blank" rel="noreferrer"><ExternalLink size={12} className="text-slate-400" /></a>}</div></div>;
 }
@@ -287,4 +350,25 @@ function ReviewBlock({ title, count, color, children }: { title: string; count: 
 }
 function ReviewItem({ text }: { text: string }) {
   return <div className="rounded-lg border border-slate-200 p-3 text-[10px] leading-4 text-slate-600">{text}</div>;
+}
+
+function mergeSources(existing: Report["sources"], incoming: Report["sources"]) {
+  const byUrl = new Map(existing.map((source) => [source.url, source]));
+  for (const source of incoming) byUrl.set(source.url, source);
+  return [...byUrl.values()];
+}
+
+function sourceOriginLabel(origin: Report["sources"][number]["origin"], t: ReturnType<typeof useLanguage>["t"]) {
+  if (origin === "ai-discovered") return t("aiDiscoveredSource");
+  if (origin === "manual") return t("manualSource");
+  return t("configuredSource");
+}
+
+function sourceDetail(source: Report["sources"][number], t: ReturnType<typeof useLanguage>["t"]) {
+  const parts = [
+    source.isOfficial ? t("officialWebSource") : t("webSource"),
+    sourceOriginLabel(source.origin, t),
+  ];
+  if (source.searchQuery) parts.push(`${t("searchQuery")}: ${source.searchQuery}`);
+  return parts.join(" · ");
 }

@@ -1,8 +1,13 @@
 import * as cheerio from "cheerio";
 import { randomUUID } from "crypto";
-import { Source } from "@/lib/types";
+import { Source, SourceOrigin } from "@/lib/types";
 
-export async function collectSource(url: string): Promise<Source> {
+type CollectSourceOptions = {
+  origin?: SourceOrigin;
+  searchQuery?: string;
+};
+
+export async function collectSource(url: string, options: CollectSourceOptions = {}): Promise<Source> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
   try {
@@ -25,6 +30,8 @@ export async function collectSource(url: string): Promise<Source> {
       fetchedAt: new Date().toISOString(),
       content,
       isOfficial: /\.(gov|gov\.tr|bel\.tr|edu)(\.|$)/.test(hostname),
+      origin: options.origin || "manual",
+      searchQuery: options.searchQuery,
     };
   } finally {
     clearTimeout(timeout);

@@ -1,6 +1,7 @@
 export type ReportStatus = "Draft" | "In Progress" | "Needs Review" | "Completed";
 export type ReviewStatus = "Not started" | "Generated" | "Needs review" | "Approved";
 export type Confidence = "High" | "Medium" | "Low";
+export type SourceOrigin = "configured" | "manual" | "ai-discovered";
 
 export interface Source {
   id: string;
@@ -9,6 +10,8 @@ export interface Source {
   fetchedAt: string;
   content: string;
   isOfficial: boolean;
+  origin: SourceOrigin;
+  searchQuery?: string;
 }
 
 export interface UploadedDocument {

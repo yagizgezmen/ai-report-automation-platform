@@ -1,14 +1,22 @@
 import OpenAI from "openai";
 import { rankChunks } from "@/lib/chunking";
-import { Report, ReportSection } from "@/lib/types";
+import { Report, ReportSection, Source } from "@/lib/types";
 import { researchWeb } from "@/lib/services/webResearchService";
 
-interface GenerationResult {
+export interface GenerationResult {
   content: string;
   confidence: "High" | "Medium" | "Low";
   sourceIds: string[];
   unsupportedClaims: string[];
   missingWarnings: string[];
+  discoveredSources: Source[];
+}
+
+export interface ChatResult {
+  reply: string;
+  proposedContent: string | null;
+  warnings: string[];
+  discoveredSources: Source[];
 }
 
 export function reportLanguageInstruction(language: string) {
@@ -46,19 +54,27 @@ SOURCE IDS IN ORDER: ${allSources.map((source, index) => `S${index + 1}=${source
     input: prompt,
   });
   try {
-    return JSON.parse(response.output_text) as GenerationResult;
+    const parsed = JSON.parse(response.output_text) as Omit<GenerationResult, "discoveredSources">;
+    return { ...parsed, discoveredSources: webSources };
   } catch {
-    return { content: response.output_text, confidence: "Low", sourceIds: [], unsupportedClaims: [], missingWarnings: ["AI response requires manual validation."] };
+    return {
+      content: response.output_text,
+      confidence: "Low",
+      sourceIds: [],
+      unsupportedClaims: [],
+      missingWarnings: ["AI response requires manual validation."],
+      discoveredSources: webSources,
+    };
   }
 }
 
-export async function chatAboutSection(report: Report, section: ReportSection, message: string) {
+export async function chatAboutSection(report: Report, section: ReportSection, message: string): Promise<ChatResult> {
   if (!process.env.OPENAI_API_KEY) {
     const result = await demoGeneration(report, section, message);
     const reply = isTurkish(report)
       ? `Bölüm “${message}” isteğine göre düzenlendi. Desteksiz bilgiler görünür biçimde işaretlenmeye devam ediyor.`
       : `I revised the section based on “${message}”. Unsupported facts remain visibly flagged.`;
-    return { reply, proposedContent: result.content, warnings: result.missingWarnings };
+    return { reply, proposedContent: result.content, warnings: result.missingWarnings, discoveredSources: [] };
   }
   const webSources = await researchWeb({ report, section, instruction: message });
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -79,8 +95,11 @@ ${message}
 
 ${contextFor(report, section, [...report.sources, ...webSources])}`,
   });
-  try { return JSON.parse(response.output_text); }
-  catch { return { reply: response.output_text, proposedContent: null, warnings: [] }; }
+  try {
+    return { ...JSON.parse(response.output_text), discoveredSources: webSources } as ChatResult;
+  } catch {
+    return { reply: response.output_text, proposedContent: null, warnings: [], discoveredSources: webSources };
+  }
 }
 
 export function demoGeneration(report: Report, section: ReportSection, instruction: string): GenerationResult {
@@ -98,6 +117,7 @@ ${instruction ? `Editorial direction applied: ${instruction}. ` : ""}The availab
     sourceIds: report.sources.slice(0, 2).map((source) => source.id),
     unsupportedClaims: report.parcelInfo ? [] : ["Parcel-specific information has not yet been supplied."],
     missingWarnings: evidence ? ["Confirm all time-sensitive administrative records before final issue."] : ["Add an official source or source document to support factual claims."],
+    discoveredSources: [],
   };
 }
 
@@ -130,6 +150,7 @@ ${instruction ? `Uygulanan düzenleme talimatı: ${instruction}. ` : ""}Mevcut k
     missingWarnings: evidence
       ? ["Zamana duyarlı idari kayıtları nihai yayından önce doğrulayın."]
       : ["Olgusal iddiaları desteklemek için tanımlı bir kaynak veya belge ekleyin."],
+    discoveredSources: [],
   };
 }
 

@@ -40,6 +40,7 @@ const sampleReport: Report = {
     fetchedAt: now.toISOString(),
     content: "Official municipality source supplied for planning and administrative context.",
     isOfficial: true,
+    origin: "configured",
   }],
   documents: [],
   createdAt: new Date(now.getTime() - 86400000 * 7).toISOString(),
@@ -92,7 +93,9 @@ export function saveDemoReport(report: Report): Report {
 export function addDemoSource(reportId: string, source: Source): Source | undefined {
   const report = reports.get(reportId);
   if (!report) return;
-  report.sources.push(source);
+  const existingIndex = report.sources.findIndex((item) => item.url === source.url);
+  if (existingIndex >= 0) report.sources[existingIndex] = source;
+  else report.sources.push(source);
   report.status = "In Progress";
   saveDemoReport(report);
   return source;

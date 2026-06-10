@@ -23,7 +23,9 @@ export async function POST(request: Request) {
     const input = createReportSchema.parse(await request.json());
     const report = await createReport(input);
     const configuredSources = await listReportTypeSources(input.reportType);
-    const results = await Promise.allSettled(configuredSources.map(({ url }) => collectSource(url)));
+    const results = await Promise.allSettled(
+      configuredSources.map(({ url }) => collectSource(url, { origin: "configured" })),
+    );
     const sources = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
     await Promise.all(sources.map((source) => addSource(report.id, source)));
     return NextResponse.json(await getReport(report.id), { status: 201 });
