@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "zod/v3";
 
 export const createReportSchema = z.object({
   reportTypeId: z.string().trim().optional(),
@@ -16,16 +16,52 @@ export const createReportSchema = z.object({
 
 const reportTypeSectionSchema = z.object({
   id: z.string().trim().optional(),
-  title: z.string().trim().min(1).max(160),
-  description: z.string().trim().min(1).max(5000),
+  title: z.string().trim().max(160).optional().default(""),
+  description: z.string().trim().max(5000).optional().default(""),
   sortOrder: z.number().int().min(0).optional(),
+}).superRefine((section, context) => {
+  const hasContent = Boolean(section.title || section.description);
+  if (!hasContent) return;
+  if (!section.title) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["title"],
+      message: "Section title is required.",
+    });
+  }
 });
 
 const reportTypeSourceSchema = z.object({
   id: z.string().trim().optional(),
-  name: z.string().trim().min(1).max(160),
-  url: z.string().trim().url(),
-  description: z.string().trim().max(5000).optional(),
+  name: z.string().trim().max(160).optional().default(""),
+  url: z.string().trim().optional().default(""),
+  description: z.string().trim().max(5000).optional().default(""),
+}).superRefine((source, context) => {
+  const hasContent = Boolean(source.name || source.url || source.description);
+  if (!hasContent) return;
+  if (!source.name) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["name"],
+      message: "Source name is required.",
+    });
+  }
+  if (!source.url) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["url"],
+      message: "Source URL is required.",
+    });
+    return;
+  }
+  const urlCheck = z.string().url().safeParse(source.url);
+  if (!urlCheck.success) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["url"],
+      message: "Source URL must be a valid URL.",
+    });
+  }
 });
 
 export const createReportTypeSchema = z.object({

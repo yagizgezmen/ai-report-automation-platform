@@ -4,7 +4,7 @@ import { AppShell } from "@/components/app-shell";
 import { useLanguage } from "@/components/language-provider";
 import { ReportType } from "@/lib/types";
 import { FileText, Globe2, GripVertical, Loader2, Plus, Save, Settings2, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type TemplateTab = "sections" | "sources" | "general";
 
@@ -17,18 +17,21 @@ export default function ReportTemplatesPage() {
   const [message, setMessage] = useState("");
   const [newTemplateName, setNewTemplateName] = useState("");
 
-  useEffect(() => {
+  const loadTemplates = useCallback(async (preferredId?: string) => {
     setBusy("load");
-    fetch("/api/report-types")
-      .then(async (response) => {
-        const body = await response.json();
-        if (!response.ok) throw new Error(body.error || t("templateSaveError"));
-        setTemplates(body);
-        setActiveId((current) => current || body[0]?.id || "");
-      })
+    const response = await fetch("/api/report-types");
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || t("templateSaveError"));
+    setTemplates(body);
+    setActiveId((current) => preferredId || current || body[0]?.id || "");
+    return body as ReportType[];
+  }, [t]);
+
+  useEffect(() => {
+    loadTemplates()
       .catch((caught) => setMessage(caught.message))
       .finally(() => setBusy(""));
-  }, [t]);
+  }, [loadTemplates]);
 
   const activeTemplate = useMemo(
     () => templates.find((template) => template.id === activeId),
@@ -59,6 +62,56 @@ export default function ReportTemplatesPage() {
     setTemplates((items) => items.map((item) => item.id === activeId ? mutator(item) : item));
   }
 
+  function normalizeTemplate(template: ReportType): ReportType {
+    return {
+      ...template,
+      name: template.name.trim(),
+      description: template.description.trim(),
+      sections: template.sections
+        .map((section, index) => ({
+          ...section,
+          title: section.title.trim(),
+          description: section.description.trim(),
+          sortOrder: index,
+        }))
+        .filter((section) => section.title || section.description),
+      sources: template.sources
+        .map((source) => ({
+          ...source,
+          name: source.name.trim(),
+          url: source.url.trim(),
+          description: (source.description || "").trim(),
+        }))
+        .filter((source) => source.name || source.url || source.description),
+    };
+  }
+
+  function templateValidationError(template: ReportType) {
+    if (!template.name.trim()) return t("templateNameRequired");
+    const invalidSection = template.sections.find((section) => (section.title.trim() || section.description.trim()) && !section.title.trim());
+    if (invalidSection) return t("templateSectionTitleRequired");
+    const invalidSourceName = template.sources.find((source) => (source.name.trim() || source.url.trim() || (source.description || "").trim()) && !source.name.trim());
+    if (invalidSourceName) return t("templateSourceNameRequired");
+    const invalidSourceUrl = template.sources.find((source) => (source.name.trim() || source.url.trim() || (source.description || "").trim()) && !source.url.trim());
+    if (invalidSourceUrl) return t("templateSourceUrlRequired");
+    const malformedUrl = template.sources.find((source) => {
+      if (!source.url.trim()) return false;
+      try {
+        new URL(source.url.trim());
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    if (malformedUrl) return t("templateSourceUrlInvalid");
+    return "";
+  }
+
+  function formatError(body: { error?: string; details?: Record<string, string[] | undefined> }) {
+    const detailMessages = Object.values(body.details || {}).flat().filter(Boolean) as string[];
+    return detailMessages[0] || body.error || t("templateSaveError");
+  }
+
   async function createTemplate(options?: { useStarterTemplate?: boolean }) {
     setBusy("create");
     setMessage("");
@@ -72,10 +125,9 @@ export default function ReportTemplatesPage() {
     });
     const body = await response.json();
     if (!response.ok) {
-      setMessage(body.error || t("templateSaveError"));
+      setMessage(formatError(body));
     } else {
-      setTemplates((items) => [...items, body]);
-      setActiveId(body.id);
+      await loadTemplates(body.id);
       setNewTemplateName("");
       setMessage(t("templateCreated"));
     }
@@ -84,18 +136,25 @@ export default function ReportTemplatesPage() {
 
   async function saveTemplate() {
     if (!activeTemplate) return;
+    const validationMessage = templateValidationError(activeTemplate);
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
+
     setBusy("save");
     setMessage("");
+    const normalized = normalizeTemplate(activeTemplate);
     const response = await fetch(`/api/report-types/${activeTemplate.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(activeTemplate),
+      body: JSON.stringify(normalized),
     });
     const body = await response.json();
     if (!response.ok) {
-      setMessage(body.error || t("templateSaveError"));
+      setMessage(formatError(body));
     } else {
-      setTemplates((items) => items.map((item) => item.id === body.id ? body : item));
+      await loadTemplates(body.id);
       setMessage(t("templateSaved"));
     }
     setBusy("");

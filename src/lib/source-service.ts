@@ -1,4 +1,4 @@
-import * as cheerio from "cheerio";
+import * as cheerio from "cheerio/slim";
 import { randomUUID } from "crypto";
 import { Source, SourceOrigin } from "@/lib/types";
 

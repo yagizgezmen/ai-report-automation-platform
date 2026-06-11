@@ -142,8 +142,10 @@ export function ReportEditor({ reportId }: { reportId: string }) {
             <div className="flex items-center gap-2">
               <h1 className="truncate text-sm font-bold">{report.projectName}</h1>
               <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">{localizeReportStatus(report.status, language)}</span>
+              {!report.reportTypeId && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">{t("legacyReportLabel")}</span>}
             </div>
             <p className="mt-1 truncate text-[11px] text-slate-500">{localizeReportType(report.reportType, language)} · {report.location}</p>
+            {!report.reportTypeId && <p className="mt-1 text-[10px] text-slate-400">{t("legacyReportHelp")}</p>}
             <p className={`mt-1 text-[10px] font-semibold ${report.allowWebResearch ? "text-emerald-600" : "text-slate-400"}`}>
               {report.allowWebResearch ? t("webResearchEnabled") : t("webResearchDisabled")}
             </p>
