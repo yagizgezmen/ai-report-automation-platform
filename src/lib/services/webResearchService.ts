@@ -1,4 +1,4 @@
-import * as cheerio from "cheerio";
+import * as cheerio from "cheerio/slim";
 import { collectSource } from "@/lib/source-service";
 import { Report, ReportSection, Source } from "@/lib/types";
 
