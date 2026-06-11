@@ -75,6 +75,8 @@ export function localizeConfidence(confidence: Confidence, language: UiLanguage)
 
 export function localizeReportType(reportType: string, language: UiLanguage) {
   const labels: Record<string, Record<UiLanguage, string>> = {
+    "Legacy report / No template assigned": { tr: "Eski rapor / Şablon atanmamış", en: "Legacy report / No template assigned" },
+    "Template-linked report": { tr: "Şablon bağlantılı rapor", en: "Template-linked report" },
     "Planning & Development Report": { tr: "Planlama ve Geliştirme Raporu", en: "Planning & Development Report" },
     "Feasibility Report": { tr: "Fizibilite Raporu", en: "Feasibility Report" },
     "Due Diligence Report": { tr: "Durum Tespit Raporu", en: "Due Diligence Report" },

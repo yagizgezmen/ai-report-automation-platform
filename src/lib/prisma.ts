@@ -24,5 +24,6 @@ if (process.env.NODE_ENV !== "production" && prisma) {
 if (!globalForPrisma.persistenceModeLogged) {
   globalForPrisma.persistenceModeLogged = true;
   const databaseUrlState = process.env.DATABASE_URL ? "present" : "missing";
+  console.info(databaseEnabled ? "Running in DATABASE_MODE" : "Running in DEMO_MODE");
   console.info(`[persistence] mode=${persistenceMode} DEMO_MODE=${process.env.DEMO_MODE ?? "undefined"} DATABASE_URL=${databaseUrlState}`);
 }

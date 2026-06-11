@@ -36,10 +36,13 @@ export const reportInclude = {
 type ReportRecord = Prisma.ReportGetPayload<{ include: typeof reportInclude }>;
 
 function toDomainReport(record: ReportRecord): Report {
+  const reportType = record.reportType?.trim()
+    || (record.reportTypeId ? "Template-linked report" : "Legacy report / No template assigned");
+
   return {
     id: record.id,
     reportTypeId: record.reportTypeId || undefined,
-    reportType: record.reportType,
+    reportType,
     projectName: record.projectName,
     location: [record.city, record.district, record.neighborhood].filter(Boolean).join(" / "),
     parcelInfo: record.parcelInfo || "",
@@ -118,6 +121,7 @@ export async function savePersistedReport(report: Report): Promise<Report> {
       data: {
         projectName: report.projectName,
         reportTypeId: report.reportTypeId || null,
+        reportType: report.reportType,
         parcelInfo: report.parcelInfo || null,
         manualNotes: report.manualNotes || null,
         status: reportStatusToDb[report.status],

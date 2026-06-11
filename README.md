@@ -226,6 +226,69 @@ npm run db:reset
 
 The seed is non-destructive. It creates default report types only when none exist, and creates the demo report only when there are no existing reports. It does not delete user reports, templates, documents, or sources.
 
+## Regression checklist
+
+Use this checklist after persistence, template-system, or migration-related changes.
+
+### 1. Database mode vs demo mode
+
+- With `DATABASE_URL` present and `DEMO_MODE="false"`, start the app and confirm logs include:
+  - `Running in DATABASE_MODE`
+- Call `/api/health` and verify:
+  - `runtimeMode` is `DATABASE_MODE`
+  - `databaseUrlPresent` is `true`
+- With `DEMO_MODE="true"` or without `DATABASE_URL`, confirm logs include:
+  - `Running in DEMO_MODE`
+- In demo mode, confirm the app still loads without PostgreSQL.
+
+### 2. Template creation
+
+- Open `/settings/report-templates`.
+- Create a new empty template.
+- Refresh the page.
+- Confirm the template is still visible.
+- Add at least one section and one source.
+- Save again and refresh.
+- Confirm:
+  - the template remains visible
+  - sections remain ordered correctly
+  - sources remain attached
+- Confirm creating a template does not overwrite existing templates.
+
+### 3. Legacy report compatibility
+
+- Open a report created before the template system, or a report with no `reportTypeId`.
+- Confirm the report opens without crashing.
+- Confirm report sections load from `ReportSection`, not from template blueprint data.
+- Confirm the UI shows the legacy fallback label:
+  - `Legacy report / No template assigned`
+- If the original template was deleted, confirm the report still opens and remains editable.
+
+### 4. Report creation from template
+
+- Create a report from an existing template.
+- Confirm template sections are copied into new `ReportSection` records.
+- Confirm template sources are copied into report `Source` records when applicable.
+- Refresh the dashboard and the report page.
+- Confirm the report is still visible and editable.
+- Modify the original template and confirm the already-created report does not break.
+
+### 5. Document persistence
+
+- Upload a PDF, DOCX, or TXT file to a report.
+- Refresh the report page.
+- Confirm the uploaded document still appears.
+- Confirm extracted text/chunk metadata remains linked to the same report.
+- Confirm document visibility is preserved after app restart in database mode.
+
+### 6. Seed safety
+
+- Run `npm run db:seed` against a database that already contains reports/templates.
+- Confirm the seed completes without deleting records.
+- Confirm existing reports, templates, sources, and documents are still present afterward.
+- Confirm normal app startup does not run seed automatically.
+- Confirm `db:reset` remains clearly marked as destructive in this README and is never used during ordinary verification.
+
 ## Evidence behavior
 
 Generation prompts instruct the model to:
