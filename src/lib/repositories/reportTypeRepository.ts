@@ -20,6 +20,9 @@ function toDomainReportType(record: ReportTypeRecord): ReportType {
       title: section.title,
       description: section.description,
       sortOrder: section.sortOrder,
+      aiPrompt: section.aiPrompt || "",
+      isRequired: section.isRequired,
+      isEnabled: section.isEnabled,
     })),
     sources: record.sources.map((source) => ({
       id: source.id,
@@ -137,9 +140,9 @@ export async function createFullReportType(template: Omit<ReportType, "id">) {
           sortOrder: section.sortOrder ?? index,
           requiredInputs: [],
           sourceRequired: false,
-          aiPrompt: "",
-          isRequired: true,
-          isEnabled: true,
+          aiPrompt: section.aiPrompt || "",
+          isRequired: section.isRequired ?? true,
+          isEnabled: section.isEnabled ?? true,
         })),
       },
       sources: {
@@ -187,9 +190,9 @@ export async function saveReportType(template: ReportType) {
             sortOrder: index,
             requiredInputs: [],
             sourceRequired: false,
-            aiPrompt: "",
-            isRequired: true,
-            isEnabled: true,
+            aiPrompt: section.aiPrompt || "",
+            isRequired: section.isRequired ?? true,
+            isEnabled: section.isEnabled ?? true,
           },
         });
       } else {
@@ -201,9 +204,9 @@ export async function saveReportType(template: ReportType) {
             sortOrder: index,
             requiredInputs: [],
             sourceRequired: false,
-            aiPrompt: "",
-            isRequired: true,
-            isEnabled: true,
+            aiPrompt: section.aiPrompt || "",
+            isRequired: section.isRequired ?? true,
+            isEnabled: section.isEnabled ?? true,
           },
         });
       }

@@ -86,6 +86,9 @@ export async function createPersistedReport(input: CreateReportInput): Promise<R
     title: section.title,
     description: section.description,
     sortOrder: section.sortOrder,
+    aiPrompt: section.aiPrompt || "",
+    isRequired: section.isRequired,
+    isEnabled: section.isEnabled,
   }));
 
   const record = await getPrismaClient().report.create({

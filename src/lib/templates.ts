@@ -16,8 +16,9 @@ const templateSections = [
 export function createTemplateSections(sectionConfigs?: ReportTypeSectionConfig[]): ReportSection[] {
   const sections = sectionConfigs?.length
     ? sectionConfigs
+      .filter((section) => section.isEnabled)
       .sort((left, right) => left.sortOrder - right.sortOrder)
-      .map((section) => [section.title, section.description, [], true] as const)
+      .map((section) => [section.title, section.description, [], section.isRequired] as const)
     : templateSections;
   return sections.map(([title, description, requiredInputs, sourceRequired], index) => ({
     id: `section-${index + 1}`,

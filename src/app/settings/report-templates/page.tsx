@@ -47,9 +47,9 @@ export default function ReportTemplatesPage() {
       name: templateName,
       description: t("untitledTemplateDescription"),
       sections: [
-        { title: t("starterSectionIntro"), description: t("starterSectionIntroDescription"), sortOrder: 0 },
-        { title: t("starterSectionAnalysis"), description: t("starterSectionAnalysisDescription"), sortOrder: 1 },
-        { title: t("starterSectionConclusion"), description: t("starterSectionConclusionDescription"), sortOrder: 2 },
+        { title: t("starterSectionIntro"), description: t("starterSectionIntroDescription"), sortOrder: 0, aiPrompt: "", isRequired: true, isEnabled: true },
+        { title: t("starterSectionAnalysis"), description: t("starterSectionAnalysisDescription"), sortOrder: 1, aiPrompt: "", isRequired: true, isEnabled: true },
+        { title: t("starterSectionConclusion"), description: t("starterSectionConclusionDescription"), sortOrder: 2, aiPrompt: "", isRequired: true, isEnabled: true },
       ],
       sources: [],
     };
@@ -228,7 +228,7 @@ export default function ReportTemplatesPage() {
                       <button
                         onClick={() => updateActiveTemplate((template) => ({
                           ...template,
-                          sections: [...template.sections, { id: "", title: "", description: "", sortOrder: template.sections.length }],
+                          sections: [...template.sections, { id: "", title: "", description: "", sortOrder: template.sections.length, aiPrompt: "", isRequired: true, isEnabled: true }],
                         }))}
                         className="btn-secondary flex items-center gap-2 text-xs"
                       >
@@ -286,6 +286,35 @@ export default function ReportTemplatesPage() {
                                 className="field min-h-24 resize-y"
                               />
                             </Field>
+                          </div>
+                          <Field label={t("sectionAiPromptLabel")}>
+                            <textarea
+                              value={section.aiPrompt || ""}
+                              onChange={(event) => updateActiveTemplate((template) => ({
+                                ...template,
+                                sections: template.sections.map((item) => item === section ? { ...item, aiPrompt: event.target.value } : item),
+                              }))}
+                              className="field mt-4 min-h-32 resize-y"
+                              placeholder={t("sectionAiPromptPlaceholder")}
+                            />
+                          </Field>
+                          <div className="mt-4 grid gap-3 md:grid-cols-2">
+                            <ToggleField
+                              label={t("sectionRequiredLabel")}
+                              checked={section.isRequired ?? true}
+                              onChange={(checked) => updateActiveTemplate((template) => ({
+                                ...template,
+                                sections: template.sections.map((item) => item === section ? { ...item, isRequired: checked } : item),
+                              }))}
+                            />
+                            <ToggleField
+                              label={t("sectionEnabledLabel")}
+                              checked={section.isEnabled ?? true}
+                              onChange={(checked) => updateActiveTemplate((template) => ({
+                                ...template,
+                                sections: template.sections.map((item) => item === section ? { ...item, isEnabled: checked } : item),
+                              }))}
+                            />
                           </div>
                         </div>
                       ))}
@@ -383,4 +412,26 @@ function TabButton({ active, onClick, icon, label }: { active: boolean; onClick:
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block"><span className="label">{label}</span>{children}</label>;
+}
+
+function ToggleField({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2">
+      <span className="text-sm font-medium text-slate-700">{label}</span>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="h-4 w-4 accent-blue-600"
+      />
+    </label>
+  );
 }

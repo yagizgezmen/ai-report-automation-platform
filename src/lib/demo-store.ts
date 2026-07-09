@@ -20,6 +20,9 @@ const demoReportTypes: ReportType[] = DEFAULT_REPORT_TEMPLATES.map((template, te
     title: section.title,
     description: section.description,
     sortOrder: sectionIndex,
+    aiPrompt: "",
+    isRequired: true,
+    isEnabled: true,
   })),
   sources: template.sources.map((source, sourceIndex) => ({
     id: `demo-report-type-${templateIndex + 1}-source-${sourceIndex + 1}`,
@@ -170,6 +173,9 @@ export function saveDemoReportType(template: ReportType): ReportType {
         ...section,
         id: section.id || randomUUID(),
         sortOrder: index,
+        aiPrompt: section.aiPrompt || "",
+        isRequired: section.isRequired ?? true,
+        isEnabled: section.isEnabled ?? true,
       })),
     sources: template.sources.map((source) => ({
       ...source,

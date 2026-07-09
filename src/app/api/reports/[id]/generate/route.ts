@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiErrorResponse } from "@/lib/api-error";
 import { generateSection } from "@/lib/ai-service";
-import { addSource, completeGenerationJob, createGenerationJob, getReport, saveReport } from "@/lib/store";
+import { addSource, completeGenerationJob, createGenerationJob, getReport, getReportType, saveReport } from "@/lib/store";
 import { generationSchema } from "@/lib/validation";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -13,8 +13,21 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const input = generationSchema.parse(await request.json());
     const section = report.sections.find((item) => item.id === input.sectionId);
     if (!section) return NextResponse.json({ error: "Section not found." }, { status: 404 });
+    const sectionIndex = report.sections.findIndex((item) => item.id === section.id);
+    let sectionAiPrompt = "";
+    if (report.reportTypeId) {
+      const template = await getReportType(report.reportTypeId);
+      if (template) {
+        const matchingSection = template.sections.find((templateSection) => templateSection.title === section.title)
+          || template.sections.filter((templateSection) => templateSection.isEnabled)[sectionIndex];
+        if (matchingSection && !matchingSection.isEnabled) {
+          return NextResponse.json({ error: "Section is disabled in the selected report template." }, { status: 400 });
+        }
+        sectionAiPrompt = matchingSection?.aiPrompt || "";
+      }
+    }
     jobId = await createGenerationJob(report.id, section.id);
-    const result = await generateSection(report, section, input.instruction);
+    const result = await generateSection(report, section, input.instruction, sectionAiPrompt);
     const persistedSources = await Promise.all(result.discoveredSources.map((source) => addSource(report.id, source)));
     const discoveredSources = persistedSources.filter((source): source is NonNullable<typeof source> => Boolean(source));
     const hasMissingData = result.missingWarnings.some((warning) =>

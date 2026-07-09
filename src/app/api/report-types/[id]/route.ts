@@ -27,6 +27,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         title: section.title,
         description: section.description,
         sortOrder: section.sortOrder ?? index,
+        aiPrompt: section.aiPrompt || "",
+        isRequired: section.isRequired ?? true,
+        isEnabled: section.isEnabled ?? true,
       })),
       sources: input.sources.map((source) => ({
         id: source.id || "",

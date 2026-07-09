@@ -76,6 +76,9 @@ export interface ReportTypeSectionConfig {
   title: string;
   description: string;
   sortOrder: number;
+  aiPrompt: string;
+  isRequired: boolean;
+  isEnabled: boolean;
 }
 
 export interface ReportTypeSource {

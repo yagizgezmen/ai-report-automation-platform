@@ -64,6 +64,9 @@ async function main() {
       title: section.title,
       description: section.description,
       sortOrder: index,
+      aiPrompt: "",
+      isRequired: true,
+      isEnabled: true,
     })));
 
     const demoUser = await tx.user.upsert({

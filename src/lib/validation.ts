@@ -19,6 +19,9 @@ const reportTypeSectionSchema = z.object({
   title: z.string().trim().min(1).max(160),
   description: z.string().trim().min(1).max(5000),
   sortOrder: z.number().int().min(0).optional(),
+  aiPrompt: z.string().max(10000).optional().default(""),
+  isRequired: z.boolean().optional().default(true),
+  isEnabled: z.boolean().optional().default(true),
 });
 
 const reportTypeSourceSchema = z.object({

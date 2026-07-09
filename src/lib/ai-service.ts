@@ -29,11 +29,19 @@ function contextFor(report: Report, section: ReportSection, researchSources = re
   return `REPORT\nProject: ${report.projectName}\nType: ${report.reportType}\nLocation: ${report.location}\nParcel: ${report.parcelInfo}\nCompany notes: ${report.manualNotes}\nLanguage: ${report.outputLanguage}\nWeb research allowed: ${report.allowWebResearch ? "Yes" : "No"}\n\nSOURCES\n${sourceText || "No URL sources supplied."}\n\nDOCUMENTS\n${allChunks.join("\n\n") || "No documents supplied."}`;
 }
 
-export async function generateSection(report: Report, section: ReportSection, instruction = ""): Promise<GenerationResult> {
-  if (!process.env.OPENAI_API_KEY) return demoGeneration(report, section, instruction);
+export async function generateSection(
+  report: Report,
+  section: ReportSection,
+  instruction = "",
+  sectionAiPrompt = "",
+): Promise<GenerationResult> {
+  if (!process.env.OPENAI_API_KEY) return demoGeneration(report, section, instruction, sectionAiPrompt);
   const webSources = await researchWeb({ report, section, instruction });
   const allSources = [...report.sources, ...webSources];
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const aiPromptInstruction = sectionAiPrompt.trim()
+    ? `SECTION AI PROMPT:\n${sectionAiPrompt.trim()}\n`
+    : "";
   const prompt = `You are a senior professional report writer. Draft only the requested section using exclusively the supplied context.
 Never invent facts. Cite URL sources as [S1], [S2] and documents as [D:filename]. Append [Needs manual review] to any sentence that cannot be fully supported.
 ${reportLanguageInstruction(report.outputLanguage)}
@@ -44,6 +52,7 @@ Return strict JSON with keys: content, confidence (High|Medium|Low), sourceIds (
 
 SECTION: ${sectionName(report, section)}
 PURPOSE: ${section.description}
+${aiPromptInstruction}
 USER INSTRUCTION: ${instruction || "Draft formal, clear business prose."}
 
 ${contextFor(report, section, allSources)}
@@ -102,15 +111,21 @@ ${contextFor(report, section, [...report.sources, ...webSources])}`,
   }
 }
 
-export function demoGeneration(report: Report, section: ReportSection, instruction: string): GenerationResult {
-  if (isTurkish(report)) return demoGenerationTurkish(report, section, instruction);
+export function demoGeneration(
+  report: Report,
+  section: ReportSection,
+  instruction: string,
+  sectionAiPrompt = "",
+): GenerationResult {
+  if (isTurkish(report)) return demoGenerationTurkish(report, section, instruction, sectionAiPrompt);
   const citations = report.sources.length ? " [S1]" : "";
   const evidence = report.sources.length + report.documents.length;
+  const aiPromptNote = sectionAiPrompt.trim() ? `Section-specific AI prompt applied: ${sectionAiPrompt.trim()}. ` : "";
   const base = `${section.title} has been prepared for the ${report.projectName} project in ${report.location}. This section consolidates the available project information${report.sources.length ? ", official source material," : ""} and company-provided context into a structured professional assessment.${citations}
 
 The subject is considered within the stated scope of the ${report.reportType}. ${report.parcelInfo ? `The supplied property reference is ${report.parcelInfo}.` : "Parcel-specific information has not yet been supplied [Needs manual review]."} Any conclusion that depends on current statutory records, plan notes, or third-party approvals should be confirmed against the latest competent-authority documentation before issue.${citations}
 
-${instruction ? `Editorial direction applied: ${instruction}. ` : ""}The available record supports a preliminary narrative, while unresolved data points are retained as explicit review items rather than presented as established facts.`;
+${aiPromptNote}${instruction ? `Editorial direction applied: ${instruction}. ` : ""}The available record supports a preliminary narrative, while unresolved data points are retained as explicit review items rather than presented as established facts.`;
   return {
     content: base,
     confidence: evidence > 1 ? "High" : evidence === 1 ? "Medium" : "Low",
@@ -130,17 +145,19 @@ function demoGenerationTurkish(
   report: Report,
   section: ReportSection,
   instruction: string,
+  sectionAiPrompt: string,
 ): GenerationResult {
   const citations = report.sources.length ? " [S1]" : "";
   const evidence = report.sources.length + report.documents.length;
   const parcel = report.parcelInfo
     ? `İletilen taşınmaz bilgisi ${report.parcelInfo} olarak kaydedilmiştir.`
     : "Parsel bazlı bilgi henüz sağlanmamıştır [Manuel inceleme gerekli].";
+  const aiPromptNote = sectionAiPrompt.trim() ? `Bölüme özel AI prompt uygulandı: ${sectionAiPrompt.trim()}. ` : "";
   const content = `${sectionName(report, section)}, ${report.location} konumundaki ${report.projectName} projesi için hazırlanmıştır. Bu bölüm, mevcut proje bilgilerini${report.sources.length ? ", tanımlı kaynakları" : ""} ve şirket tarafından sağlanan bağlamı resmî ve profesyonel bir değerlendirme içinde birleştirir.${citations}
 
 Çalışma, ${reportTypeName(report)} kapsamında ele alınmıştır. ${parcel} Güncel mevzuat kayıtlarına, plan notlarına veya üçüncü taraf onaylarına bağlı tüm sonuçlar nihai rapor yayımlanmadan önce yetkili kurum belgeleriyle doğrulanmalıdır.${citations}
 
-${instruction ? `Uygulanan düzenleme talimatı: ${instruction}. ` : ""}Mevcut kayıtlar ön değerlendirme yapılmasına olanak tanımakta; çözümlenmemiş veri noktaları kesin bilgi gibi sunulmak yerine açık inceleme maddeleri olarak korunmaktadır.`;
+${aiPromptNote}${instruction ? `Uygulanan düzenleme talimatı: ${instruction}. ` : ""}Mevcut kayıtlar ön değerlendirme yapılmasına olanak tanımakta; çözümlenmemiş veri noktaları kesin bilgi gibi sunulmak yerine açık inceleme maddeleri olarak korunmaktadır.`;
 
   return {
     content,

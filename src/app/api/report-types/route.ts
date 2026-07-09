@@ -23,6 +23,9 @@ export async function POST(request: Request) {
           title: section.title,
           description: section.description,
           sortOrder: section.sortOrder ?? index,
+          aiPrompt: section.aiPrompt || "",
+          isRequired: section.isRequired ?? true,
+          isEnabled: section.isEnabled ?? true,
         })),
         input.sources.map((source) => ({
           id: source.id || "",
