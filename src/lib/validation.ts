@@ -72,4 +72,5 @@ export const generationSchema = z.object({
 export const chatSchema = z.object({
   sectionId: z.string().min(1),
   message: z.string().trim().min(1).max(2000),
+  action: z.enum(["chat", "rewrite", "show_unsupported"]).optional().default("chat"),
 });

@@ -13,6 +13,7 @@ import { localizeConfidence, localizeReportStatus, localizeReportType, localizeR
 
 type Tab = "assistant" | "sources" | "review";
 type ChatItem = { role: "user" | "assistant"; text: string; proposedContent?: string | null };
+type AssistantAction = "chat" | "rewrite" | "show_unsupported";
 
 export function ReportEditor({ reportId }: { reportId: string }) {
   const { language, t } = useLanguage();
@@ -73,22 +74,49 @@ export function ReportEditor({ reportId }: { reportId: string }) {
         sources: mergeSources(report.sources, body.discoveredSources || []),
         sections: report.sections.map((item) => item.id === section.id ? body.section : item),
       });
+      setChat((items) => [
+        ...items,
+        {
+          role: "assistant",
+          text: section.content
+            ? (language === "tr" ? "Bölüm başarıyla yeniden oluşturuldu." : "Chapter regenerated successfully.")
+            : (language === "tr" ? "Bölüm başarıyla oluşturuldu." : "Chapter generated successfully."),
+        },
+      ]);
     }
     setBusy("");
   }
 
-  async function askAssistant() {
-    if (!report || !section || !message.trim()) return;
-    const prompt = message.trim();
-    setChat((items) => [...items, { role: "user", text: prompt }]); setMessage(""); setBusy("chat");
+  async function askAssistant(action: AssistantAction = "chat", overrideMessage?: string) {
+    if (!report || !section) return;
+    const prompt = (overrideMessage || message).trim();
+    if (!prompt) return;
+    setChat((items) => [...items, { role: "user", text: prompt }]);
+    if (!overrideMessage) setMessage("");
+    setBusy("chat");
     const response = await fetch(`/api/reports/${report.id}/chat`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sectionId: section.id, message: prompt }),
+      body: JSON.stringify({ sectionId: section.id, message: prompt, action }),
     });
     const body = await response.json();
-    setChat((items) => [...items, { role: "assistant", text: body.reply || body.error, proposedContent: body.proposedContent }]);
-    if (response.ok && body.discoveredSources?.length) {
-      setReport((current) => current ? { ...current, sources: mergeSources(current.sources, body.discoveredSources) } : current);
+    setChat((items) => [
+      ...items,
+      {
+        role: "assistant",
+        text: body.reply || body.error,
+        proposedContent: action === "chat" ? body.proposedContent : null,
+      },
+    ]);
+    if (response.ok) {
+      setReport((current) => {
+        if (!current) return current;
+        const mergedSources = mergeSources(current.sources, body.discoveredSources || []);
+        const nextSections = body.section
+          ? current.sections.map((item) => item.id === body.section.id ? body.section : item)
+          : current.sections;
+        const nextStatus = body.section ? "In Progress" : current.status;
+        return { ...current, sources: mergedSources, sections: nextSections, status: nextStatus };
+      });
     }
     setBusy("");
   }
@@ -121,13 +149,13 @@ export function ReportEditor({ reportId }: { reportId: string }) {
   if (!report || !section) return <div className="flex min-h-screen items-center justify-center text-sm text-slate-500"><Loader2 className="mr-2 animate-spin" size={18} /> {t("loadingWorkspace")}</div>;
 
   const localizedSection = localizeSection(section.title, section.description, language);
-  const quickActions = [
-    [t("formal"), language === "tr" ? "Bu bölümü daha resmî bir dille yeniden yaz" : "Make this section more formal"],
-    [t("expandEvidence"), language === "tr" ? "Bu bölümü kanıtlarla genişlet" : "Expand this section with evidence"],
-    [t("findMissing"), language === "tr" ? "Eksik bilgileri bul" : "Find missing information"],
-    [t("showUnsupported"), language === "tr" ? "Desteksiz iddiaları göster" : "Show unsupported claims"],
-    [t("convertTable"), language === "tr" ? "Bu bölümü tabloya dönüştür" : "Convert this section into a table"],
-    [t("officialOnly"), language === "tr" ? "Yalnızca resmî kaynakları kullan" : "Use only official sources"],
+  const quickActions: Array<{ label: string; instruction: string; action: AssistantAction }> = [
+    { label: t("formal"), instruction: language === "tr" ? "Bu bölümü daha resmî bir dille yeniden yaz." : "Rewrite this chapter in a more formal tone.", action: "rewrite" },
+    { label: t("expandEvidence"), instruction: language === "tr" ? "Bu bölümü mevcut kaynaklardan daha güçlü kanıtlarla genişlet." : "Rewrite this chapter by strengthening evidence from available sources.", action: "rewrite" },
+    { label: t("findMissing"), instruction: language === "tr" ? "Bu bölümü eksik kalan konuları tamamlayarak yeniden yaz." : "Rewrite this chapter by filling missing information.", action: "rewrite" },
+    { label: t("showUnsupported"), instruction: language === "tr" ? "Bu bölümdeki desteksiz iddiaları analiz et ve bulguları listele." : "Analyze unsupported claims in this chapter and list findings.", action: "show_unsupported" },
+    { label: t("convertTable"), instruction: language === "tr" ? "Bu bölümü tablo formatını koruyarak yeniden düzenle." : "Rewrite this chapter in a structured table-style format while preserving meaning.", action: "rewrite" },
+    { label: t("officialOnly"), instruction: language === "tr" ? "Bu bölümü yalnızca resmî kaynaklara dayalı olarak yeniden yaz." : "Rewrite this chapter using only official configured sources.", action: "rewrite" },
   ];
   const configuredSources = report.sources.filter((source) => source.origin === "configured");
   const aiDiscoveredSources = report.sources.filter((source) => source.origin === "ai-discovered");
@@ -233,8 +261,14 @@ export function ReportEditor({ reportId }: { reportId: string }) {
                 <div className="mb-4 rounded-xl bg-blue-50 p-3">
                   <div className="mb-2 flex items-center gap-2 text-[11px] font-bold text-blue-800"><Sparkles size={14} /> {t("quickActions")}</div>
                   <div className="flex flex-wrap gap-1.5">
-                    {quickActions.map(([label, instruction]) => (
-                      <button key={label} onClick={() => generate(instruction)} className="rounded-md border border-blue-100 bg-white px-2 py-1.5 text-[9px] font-bold text-blue-700">{label}</button>
+                    {quickActions.map((item) => (
+                      <button
+                        key={item.label}
+                        onClick={() => askAssistant(item.action, item.instruction)}
+                        className="rounded-md border border-blue-100 bg-white px-2 py-1.5 text-[9px] font-bold text-blue-700"
+                      >
+                        {item.label}
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -249,7 +283,7 @@ export function ReportEditor({ reportId }: { reportId: string }) {
               <div className="border-t border-slate-200 p-3">
                 <div className="rounded-xl border border-slate-200 p-2">
                   <textarea value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); askAssistant(); } }} className="h-16 w-full resize-none border-0 p-1 text-[11px] outline-none" placeholder={t("askSection")} />
-                  <div className="flex justify-end"><button onClick={askAssistant} className="rounded-lg bg-blue-600 p-2 text-white"><Send size={13} /></button></div>
+                  <div className="flex justify-end"><button onClick={() => askAssistant()} className="rounded-lg bg-blue-600 p-2 text-white"><Send size={13} /></button></div>
                 </div>
               </div>
             </>

@@ -19,6 +19,8 @@ export interface ChatResult {
   discoveredSources: Source[];
 }
 
+type ChatAction = "chat" | "rewrite" | "show_unsupported";
+
 export function reportLanguageInstruction(language: string) {
   return `Write the entire output only in the report language: ${language}. Do not switch to English unless the report language is English. Translate section names, report type names, headings, warnings, and explanatory text into the report language.`;
 }
@@ -35,7 +37,7 @@ export async function generateSection(
   instruction = "",
   sectionAiPrompt = "",
 ): Promise<GenerationResult> {
-  if (!process.env.OPENAI_API_KEY) return demoGeneration(report, section, instruction, sectionAiPrompt);
+  if (!process.env.OPENAI_API_KEY) return demoGeneration(report, section);
   const webSources = await researchWeb({ report, section, instruction });
   const allSources = [...report.sources, ...webSources];
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -77,16 +79,47 @@ SOURCE IDS IN ORDER: ${allSources.map((source, index) => `S${index + 1}=${source
   }
 }
 
-export async function chatAboutSection(report: Report, section: ReportSection, message: string): Promise<ChatResult> {
-  if (!process.env.OPENAI_API_KEY) {
-    const result = await demoGeneration(report, section, message);
+export async function chatAboutSection(
+  report: Report,
+  section: ReportSection,
+  message: string,
+  action: ChatAction = "chat",
+): Promise<ChatResult> {
+  if (action === "show_unsupported") {
+    const unsupported = section.unsupportedClaims.length
+      ? section.unsupportedClaims.map((item) => `- ${item}`).join("\n")
+      : (isTurkish(report) ? "Desteksiz iddia bulunmadı." : "No unsupported claims detected.");
+    const missing = section.missingWarnings.length
+      ? section.missingWarnings.map((item) => `- ${item}`).join("\n")
+      : (isTurkish(report) ? "Eksik bilgi uyarısı bulunmadı." : "No missing information warnings detected.");
     const reply = isTurkish(report)
-      ? `Bölüm “${message}” isteğine göre düzenlendi. Desteksiz bilgiler görünür biçimde işaretlenmeye devam ediyor.`
-      : `I revised the section based on “${message}”. Unsupported facts remain visibly flagged.`;
-    return { reply, proposedContent: result.content, warnings: result.missingWarnings, discoveredSources: [] };
+      ? `Desteksiz iddia analizi tamamlandı.\n\nDesteksiz iddialar:\n${unsupported}\n\nEksik bilgi uyarıları:\n${missing}`
+      : `Unsupported-claim analysis completed.\n\nUnsupported claims:\n${unsupported}\n\nMissing-information warnings:\n${missing}`;
+    return { reply, proposedContent: null, warnings: [], discoveredSources: [] };
+  }
+
+  if (!process.env.OPENAI_API_KEY) {
+    if (action === "rewrite") {
+      const result = await demoGeneration(report, section);
+      const reply = isTurkish(report)
+        ? "Bölüm yeniden yazıldı ve içerik güncellendi."
+        : "The section was rewritten and content was updated.";
+      return { reply, proposedContent: result.content, warnings: result.missingWarnings, discoveredSources: [] };
+    }
+    const reply = isTurkish(report)
+      ? "Yardımcı asistan yanıtı oluşturuldu. İçeriği değiştirmek için bir düzenleme isteği verin."
+      : "Assistant response generated. Ask for an editing action to change section content.";
+    return { reply, proposedContent: null, warnings: [], discoveredSources: [] };
   }
   const webSources = await researchWeb({ report, section, instruction: message });
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const modeInstruction = action === "rewrite"
+    ? `Return JSON with keys: reply, proposedContent, warnings.
+proposedContent must contain only the final rewritten section body.
+Do not include explanations, meta-notes, assistant commentary, or prefixes like "Based on your request".
+Preserve paragraph structure and keep existing citations when still valid.`
+    : `Return JSON with keys: reply, proposedContent, warnings.
+If no rewrite is explicitly requested, set proposedContent to null and keep explanations in reply only.`;
   const response = await client.responses.create({
     model: process.env.OPENAI_MODEL || "gpt-5.4-mini",
     input: `Act as an evidence-grounded report editing assistant. Respond to the user's request using only the supplied context.
@@ -94,7 +127,7 @@ ${reportLanguageInstruction(report.outputLanguage)}
 ${report.allowWebResearch
     ? "Use only the explicit web research results included in SOURCES."
     : "Web research is disabled. Do not use external or background knowledge."}
-Return JSON with reply, proposedContent, warnings.
+${modeInstruction}
 
 CURRENT SECTION:
 ${section.content}
@@ -114,18 +147,15 @@ ${contextFor(report, section, [...report.sources, ...webSources])}`,
 export function demoGeneration(
   report: Report,
   section: ReportSection,
-  instruction: string,
-  sectionAiPrompt = "",
 ): GenerationResult {
-  if (isTurkish(report)) return demoGenerationTurkish(report, section, instruction, sectionAiPrompt);
+  if (isTurkish(report)) return demoGenerationTurkish(report, section);
   const citations = report.sources.length ? " [S1]" : "";
   const evidence = report.sources.length + report.documents.length;
-  const aiPromptNote = sectionAiPrompt.trim() ? `Section-specific AI prompt applied: ${sectionAiPrompt.trim()}. ` : "";
   const base = `${section.title} has been prepared for the ${report.projectName} project in ${report.location}. This section consolidates the available project information${report.sources.length ? ", official source material," : ""} and company-provided context into a structured professional assessment.${citations}
 
 The subject is considered within the stated scope of the ${report.reportType}. ${report.parcelInfo ? `The supplied property reference is ${report.parcelInfo}.` : "Parcel-specific information has not yet been supplied [Needs manual review]."} Any conclusion that depends on current statutory records, plan notes, or third-party approvals should be confirmed against the latest competent-authority documentation before issue.${citations}
 
-${aiPromptNote}${instruction ? `Editorial direction applied: ${instruction}. ` : ""}The available record supports a preliminary narrative, while unresolved data points are retained as explicit review items rather than presented as established facts.`;
+The available record supports a preliminary narrative, while unresolved data points are retained as explicit review items rather than presented as established facts.`;
   return {
     content: base,
     confidence: evidence > 1 ? "High" : evidence === 1 ? "Medium" : "Low",
@@ -144,20 +174,17 @@ function isTurkish(report: Report) {
 function demoGenerationTurkish(
   report: Report,
   section: ReportSection,
-  instruction: string,
-  sectionAiPrompt: string,
 ): GenerationResult {
   const citations = report.sources.length ? " [S1]" : "";
   const evidence = report.sources.length + report.documents.length;
   const parcel = report.parcelInfo
     ? `İletilen taşınmaz bilgisi ${report.parcelInfo} olarak kaydedilmiştir.`
     : "Parsel bazlı bilgi henüz sağlanmamıştır [Manuel inceleme gerekli].";
-  const aiPromptNote = sectionAiPrompt.trim() ? `Bölüme özel AI prompt uygulandı: ${sectionAiPrompt.trim()}. ` : "";
   const content = `${sectionName(report, section)}, ${report.location} konumundaki ${report.projectName} projesi için hazırlanmıştır. Bu bölüm, mevcut proje bilgilerini${report.sources.length ? ", tanımlı kaynakları" : ""} ve şirket tarafından sağlanan bağlamı resmî ve profesyonel bir değerlendirme içinde birleştirir.${citations}
 
 Çalışma, ${reportTypeName(report)} kapsamında ele alınmıştır. ${parcel} Güncel mevzuat kayıtlarına, plan notlarına veya üçüncü taraf onaylarına bağlı tüm sonuçlar nihai rapor yayımlanmadan önce yetkili kurum belgeleriyle doğrulanmalıdır.${citations}
 
-${aiPromptNote}${instruction ? `Uygulanan düzenleme talimatı: ${instruction}. ` : ""}Mevcut kayıtlar ön değerlendirme yapılmasına olanak tanımakta; çözümlenmemiş veri noktaları kesin bilgi gibi sunulmak yerine açık inceleme maddeleri olarak korunmaktadır.`;
+Mevcut kayıtlar ön değerlendirme yapılmasına olanak tanımakta; çözümlenmemiş veri noktaları kesin bilgi gibi sunulmak yerine açık inceleme maddeleri olarak korunmaktadır.`;
 
   return {
     content,
