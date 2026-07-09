@@ -22,6 +22,13 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       id: input.id,
       name: input.name,
       description: input.description,
+      defaultLanguage: input.defaultLanguage,
+      enableWebResearch: input.enableWebResearch,
+      defaultAiPrompt: input.defaultAiPrompt,
+      creativityLevel: input.creativityLevel,
+      requireCitations: input.requireCitations,
+      reportTone: input.reportTone,
+      documentFormat: input.documentFormat,
       sections: input.sections.map((section, index) => ({
         id: section.id || "",
         title: section.title,

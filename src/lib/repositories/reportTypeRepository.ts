@@ -15,6 +15,13 @@ function toDomainReportType(record: ReportTypeRecord): ReportType {
     id: record.id,
     name: record.name,
     description: record.description || "",
+    defaultLanguage: record.defaultLanguage || "Turkish",
+    enableWebResearch: record.enableWebResearch,
+    defaultAiPrompt: record.defaultAiPrompt || "",
+    creativityLevel: record.creativityLevel,
+    requireCitations: record.requireCitations,
+    reportTone: record.reportTone || "Technical",
+    documentFormat: record.documentFormat || "DOCX",
     sections: record.sections.map((section) => ({
       id: section.id,
       title: section.title,
@@ -120,9 +127,26 @@ export async function findReportTypeById(id: string): Promise<ReportType | undef
   return record ? toDomainReportType(record) : undefined;
 }
 
-export async function createReportType(name: string, description: string) {
+export async function createReportType(
+  name: string,
+  description: string,
+  configuration: Pick<
+    ReportType,
+    "defaultLanguage" | "enableWebResearch" | "defaultAiPrompt" | "creativityLevel" | "requireCitations" | "reportTone" | "documentFormat"
+  >,
+) {
   const record = await getPrismaClient().reportType.create({
-    data: { name, description },
+    data: {
+      name,
+      description,
+      defaultLanguage: configuration.defaultLanguage || "Turkish",
+      enableWebResearch: configuration.enableWebResearch ?? true,
+      defaultAiPrompt: configuration.defaultAiPrompt || "",
+      creativityLevel: configuration.creativityLevel ?? 20,
+      requireCitations: configuration.requireCitations ?? true,
+      reportTone: configuration.reportTone || "Technical",
+      documentFormat: configuration.documentFormat || "DOCX",
+    },
     include: reportTypeInclude,
   });
   return toDomainReportType(record);
@@ -133,6 +157,13 @@ export async function createFullReportType(template: Omit<ReportType, "id">) {
     data: {
       name: template.name,
       description: template.description || null,
+      defaultLanguage: template.defaultLanguage || "Turkish",
+      enableWebResearch: template.enableWebResearch ?? true,
+      defaultAiPrompt: template.defaultAiPrompt || "",
+      creativityLevel: template.creativityLevel ?? 20,
+      requireCitations: template.requireCitations ?? true,
+      reportTone: template.reportTone || "Technical",
+      documentFormat: template.documentFormat || "DOCX",
       sections: {
         create: template.sections.map((section, index) => ({
           title: section.title,
@@ -167,6 +198,13 @@ export async function saveReportType(template: ReportType) {
       data: {
         name: template.name,
         description: template.description || null,
+        defaultLanguage: template.defaultLanguage || "Turkish",
+        enableWebResearch: template.enableWebResearch ?? true,
+        defaultAiPrompt: template.defaultAiPrompt || "",
+        creativityLevel: template.creativityLevel ?? 20,
+        requireCitations: template.requireCitations ?? true,
+        reportTone: template.reportTone || "Technical",
+        documentFormat: template.documentFormat || "DOCX",
       },
     });
 

@@ -3,10 +3,10 @@
 import { AppShell } from "@/components/app-shell";
 import { useLanguage } from "@/components/language-provider";
 import { ReportType } from "@/lib/types";
-import { FileText, Globe2, GripVertical, Loader2, Plus, Save, Settings2, Trash2 } from "lucide-react";
+import { FileText, Globe2, GripVertical, Loader2, Plus, Save, Settings2, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-type TemplateTab = "sections" | "sources" | "general";
+type TemplateTab = "sections" | "sources" | "general" | "aiConfiguration";
 
 export default function ReportTemplatesPage() {
   const { t } = useLanguage();
@@ -23,7 +23,7 @@ export default function ReportTemplatesPage() {
       .then(async (response) => {
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || t("templateSaveError"));
-        setTemplates(body);
+        setTemplates((body as ReportType[]).map(normalizeTemplate));
         setActiveId((current) => current || body[0]?.id || "");
       })
       .catch((caught) => setMessage(caught.message))
@@ -46,6 +46,13 @@ export default function ReportTemplatesPage() {
     return {
       name: templateName,
       description: t("untitledTemplateDescription"),
+      defaultLanguage: "Turkish",
+      enableWebResearch: true,
+      defaultAiPrompt: "",
+      creativityLevel: 20,
+      requireCitations: true,
+      reportTone: "Technical",
+      documentFormat: "DOCX",
       sections: [
         { title: t("starterSectionIntro"), description: t("starterSectionIntroDescription"), sortOrder: 0, aiPrompt: "", isRequired: true, isEnabled: true },
         { title: t("starterSectionAnalysis"), description: t("starterSectionAnalysisDescription"), sortOrder: 1, aiPrompt: "", isRequired: true, isEnabled: true },
@@ -64,7 +71,17 @@ export default function ReportTemplatesPage() {
     setMessage("");
     const payload = options?.useStarterTemplate
       ? buildStarterTemplatePayload()
-      : { name: buildTemplateName(), description: "" };
+      : {
+        name: buildTemplateName(),
+        description: "",
+        defaultLanguage: "Turkish",
+        enableWebResearch: true,
+        defaultAiPrompt: "",
+        creativityLevel: 20,
+        requireCitations: true,
+        reportTone: "Technical",
+        documentFormat: "DOCX",
+      };
     const response = await fetch("/api/report-types", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -74,7 +91,7 @@ export default function ReportTemplatesPage() {
     if (!response.ok) {
       setMessage(body.error || t("templateSaveError"));
     } else {
-      setTemplates((items) => [...items, body]);
+      setTemplates((items) => [...items, normalizeTemplate(body as ReportType)]);
       setActiveId(body.id);
       setNewTemplateName("");
       setMessage(t("templateCreated"));
@@ -95,10 +112,23 @@ export default function ReportTemplatesPage() {
     if (!response.ok) {
       setMessage(body.error || t("templateSaveError"));
     } else {
-      setTemplates((items) => items.map((item) => item.id === body.id ? body : item));
+      setTemplates((items) => items.map((item) => item.id === body.id ? normalizeTemplate(body as ReportType) : item));
       setMessage(t("templateSaved"));
     }
     setBusy("");
+  }
+
+  function normalizeTemplate(template: ReportType): ReportType {
+    return {
+      ...template,
+      defaultLanguage: template.defaultLanguage || "Turkish",
+      enableWebResearch: template.enableWebResearch ?? true,
+      defaultAiPrompt: template.defaultAiPrompt || "",
+      creativityLevel: typeof template.creativityLevel === "number" ? template.creativityLevel : 20,
+      requireCitations: template.requireCitations ?? true,
+      reportTone: template.reportTone || "Technical",
+      documentFormat: template.documentFormat || "DOCX",
+    };
   }
 
   async function deleteTemplate() {
@@ -195,9 +225,10 @@ export default function ReportTemplatesPage() {
                   </div>
                 </div>
 
-                <div className="mb-6 grid grid-cols-3 gap-2 rounded-xl bg-slate-100 p-1">
+                <div className="mb-6 grid grid-cols-4 gap-2 rounded-xl bg-slate-100 p-1">
                   <TabButton active={tab === "sections"} onClick={() => setTab("sections")} icon={<FileText size={14} />} label={t("sectionsTab")} />
                   <TabButton active={tab === "sources"} onClick={() => setTab("sources")} icon={<Globe2 size={14} />} label={t("sourcesTab")} />
+                  <TabButton active={tab === "aiConfiguration"} onClick={() => setTab("aiConfiguration")} icon={<Sparkles size={14} />} label={t("aiConfigurationTab")} />
                   <TabButton active={tab === "general"} onClick={() => setTab("general")} icon={<Settings2 size={14} />} label={t("generalTab")} />
                 </div>
 
@@ -218,6 +249,90 @@ export default function ReportTemplatesPage() {
                         placeholder={t("templateDescriptionPlaceholder")}
                       />
                     </Field>
+                  </div>
+                )}
+
+                {tab === "aiConfiguration" && (
+                  <div className="space-y-4">
+                    <ConfigCard title={t("aiConfigGeneralCardTitle")}>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <Field label={t("aiConfigReportLanguageLabel")}>
+                          <select
+                            value={activeTemplate.defaultLanguage}
+                            onChange={(event) => updateActiveTemplate((template) => ({ ...template, defaultLanguage: event.target.value }))}
+                            className="field"
+                          >
+                            <option value="Turkish">{t("turkish")}</option>
+                            <option value="English">{t("english")}</option>
+                            <option value="German">{t("german")}</option>
+                          </select>
+                        </Field>
+                        <Field label={t("aiConfigCreativityLabel")}>
+                          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                            <input
+                              type="range"
+                              min={0}
+                              max={100}
+                              value={activeTemplate.creativityLevel}
+                              onChange={(event) => updateActiveTemplate((template) => ({ ...template, creativityLevel: Number(event.target.value) }))}
+                              className="w-full accent-blue-600"
+                            />
+                            <div className="mt-2 text-xs font-bold text-slate-600">{activeTemplate.creativityLevel}</div>
+                          </div>
+                        </Field>
+                      </div>
+                      <ToggleField
+                        label={t("aiConfigEnableWebResearchLabel")}
+                        checked={activeTemplate.enableWebResearch}
+                        onChange={(checked) => updateActiveTemplate((template) => ({ ...template, enableWebResearch: checked }))}
+                      />
+                    </ConfigCard>
+
+                    <ConfigCard title={t("aiConfigPromptCardTitle")}>
+                      <Field label={t("aiConfigDefaultPromptLabel")}>
+                        <textarea
+                          value={activeTemplate.defaultAiPrompt}
+                          onChange={(event) => updateActiveTemplate((template) => ({ ...template, defaultAiPrompt: event.target.value }))}
+                          className="field min-h-40 resize-y"
+                          placeholder={t("aiConfigDefaultPromptPlaceholder")}
+                        />
+                      </Field>
+                    </ConfigCard>
+
+                    <ConfigCard title={t("aiConfigCitationsCardTitle")}>
+                      <ToggleField
+                        label={t("aiConfigRequireCitationsLabel")}
+                        checked={activeTemplate.requireCitations}
+                        onChange={(checked) => updateActiveTemplate((template) => ({ ...template, requireCitations: checked }))}
+                      />
+                    </ConfigCard>
+
+                    <ConfigCard title={t("aiConfigOutputCardTitle")}>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <Field label={t("aiConfigReportToneLabel")}>
+                          <select
+                            value={activeTemplate.reportTone}
+                            onChange={(event) => updateActiveTemplate((template) => ({ ...template, reportTone: event.target.value }))}
+                            className="field"
+                          >
+                            <option value="Formal">{t("aiConfigToneFormal")}</option>
+                            <option value="Technical">{t("aiConfigToneTechnical")}</option>
+                            <option value="Legal">{t("aiConfigToneLegal")}</option>
+                            <option value="Academic">{t("aiConfigToneAcademic")}</option>
+                          </select>
+                        </Field>
+                        <Field label={t("aiConfigDocumentFormatLabel")}>
+                          <select
+                            value={activeTemplate.documentFormat}
+                            onChange={(event) => updateActiveTemplate((template) => ({ ...template, documentFormat: event.target.value }))}
+                            className="field"
+                          >
+                            <option value="DOCX">DOCX</option>
+                            <option value="PDF">PDF</option>
+                          </select>
+                        </Field>
+                      </div>
+                    </ConfigCard>
                   </div>
                 )}
 
@@ -433,5 +548,14 @@ function ToggleField({
         className="h-4 w-4 accent-blue-600"
       />
     </label>
+  );
+}
+
+function ConfigCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-xl border border-slate-200 p-4">
+      <h3 className="mb-3 text-sm font-bold text-slate-800">{title}</h3>
+      <div className="space-y-4">{children}</div>
+    </section>
   );
 }

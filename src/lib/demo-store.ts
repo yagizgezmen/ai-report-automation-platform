@@ -15,6 +15,13 @@ const demoReportTypes: ReportType[] = DEFAULT_REPORT_TEMPLATES.map((template, te
   id: `demo-report-type-${templateIndex + 1}`,
   name: template.name,
   description: template.description,
+  defaultLanguage: "Turkish",
+  enableWebResearch: true,
+  defaultAiPrompt: "",
+  creativityLevel: 20,
+  requireCitations: true,
+  reportTone: "Technical",
+  documentFormat: "DOCX",
   sections: template.sections.map((section, sectionIndex) => ({
     id: `demo-report-type-${templateIndex + 1}-section-${sectionIndex + 1}`,
     title: section.title,
@@ -153,11 +160,25 @@ export function getDemoReportType(id: string): ReportType | undefined {
   return reportTypes.get(id);
 }
 
-export function createDemoReportType(name: string, description: string): ReportType {
+export function createDemoReportType(
+  name: string,
+  description: string,
+  configuration: Pick<
+    ReportType,
+    "defaultLanguage" | "enableWebResearch" | "defaultAiPrompt" | "creativityLevel" | "requireCitations" | "reportTone" | "documentFormat"
+  >,
+): ReportType {
   const template: ReportType = {
     id: randomUUID(),
     name,
     description,
+    defaultLanguage: configuration.defaultLanguage,
+    enableWebResearch: configuration.enableWebResearch,
+    defaultAiPrompt: configuration.defaultAiPrompt,
+    creativityLevel: configuration.creativityLevel,
+    requireCitations: configuration.requireCitations,
+    reportTone: configuration.reportTone,
+    documentFormat: configuration.documentFormat,
     sections: [],
     sources: [],
   };
@@ -177,6 +198,13 @@ export function saveDemoReportType(template: ReportType): ReportType {
         isRequired: section.isRequired ?? true,
         isEnabled: section.isEnabled ?? true,
       })),
+    defaultLanguage: template.defaultLanguage || "Turkish",
+    enableWebResearch: template.enableWebResearch ?? true,
+    defaultAiPrompt: template.defaultAiPrompt || "",
+    creativityLevel: typeof template.creativityLevel === "number" ? template.creativityLevel : 20,
+    requireCitations: template.requireCitations ?? true,
+    reportTone: template.reportTone || "Technical",
+    documentFormat: template.documentFormat || "DOCX",
     sources: template.sources.map((source) => ({
       ...source,
       id: source.id || randomUUID(),

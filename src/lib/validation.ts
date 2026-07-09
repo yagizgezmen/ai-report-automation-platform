@@ -9,7 +9,7 @@ export const createReportSchema = z.object({
   neighborhood: z.string().trim().max(100).optional(),
   parcelInfo: z.string().trim().max(500).optional(),
   manualNotes: z.string().max(10000).optional(),
-  outputLanguage: z.string().min(2).max(50),
+  outputLanguage: z.string().min(2).max(50).optional().default("Turkish"),
   allowWebResearch: z.boolean().default(false),
   desiredLength: z.number().int().min(5).max(100),
 });
@@ -34,6 +34,13 @@ const reportTypeSourceSchema = z.object({
 export const createReportTypeSchema = z.object({
   name: z.string().trim().min(2).max(160),
   description: z.string().trim().max(5000).optional().default(""),
+  defaultLanguage: z.enum(["Turkish", "English", "German"]).optional().default("Turkish"),
+  enableWebResearch: z.boolean().optional().default(true),
+  defaultAiPrompt: z.string().max(10000).optional().default(""),
+  creativityLevel: z.number().int().min(0).max(100).optional().default(20),
+  requireCitations: z.boolean().optional().default(true),
+  reportTone: z.enum(["Formal", "Technical", "Legal", "Academic"]).optional().default("Technical"),
+  documentFormat: z.enum(["DOCX", "PDF"]).optional().default("DOCX"),
   sections: z.array(reportTypeSectionSchema).max(100).optional().default([]),
   sources: z.array(reportTypeSourceSchema).max(100).optional().default([]),
 });
@@ -42,6 +49,13 @@ export const updateReportTypeSchema = z.object({
   id: z.string().trim().min(1),
   name: z.string().trim().min(2).max(160),
   description: z.string().trim().max(5000).optional().default(""),
+  defaultLanguage: z.enum(["Turkish", "English", "German"]).optional().default("Turkish"),
+  enableWebResearch: z.boolean().optional().default(true),
+  defaultAiPrompt: z.string().max(10000).optional().default(""),
+  creativityLevel: z.number().int().min(0).max(100).optional().default(20),
+  requireCitations: z.boolean().optional().default(true),
+  reportTone: z.enum(["Formal", "Technical", "Legal", "Academic"]).optional().default("Technical"),
+  documentFormat: z.enum(["DOCX", "PDF"]).optional().default("DOCX"),
   sections: z.array(reportTypeSectionSchema).max(100),
   sources: z.array(reportTypeSourceSchema).max(100),
 });

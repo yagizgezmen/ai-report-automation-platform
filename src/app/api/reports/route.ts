@@ -20,13 +20,23 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const input = createReportSchema.parse(await request.json());
+    const payload = await request.json();
+    const input = createReportSchema.parse(payload);
     const reportType = input.reportTypeId ? await getReportType(input.reportTypeId) : undefined;
-    const report = await createReport(input);
+    const normalizedInput = {
+      ...input,
+      outputLanguage: typeof payload.outputLanguage === "string" && payload.outputLanguage.trim()
+        ? input.outputLanguage
+        : (reportType?.defaultLanguage || input.outputLanguage),
+      allowWebResearch: typeof payload.allowWebResearch === "boolean"
+        ? input.allowWebResearch
+        : (reportType?.enableWebResearch ?? input.allowWebResearch),
+    };
+    const report = await createReport(normalizedInput);
     const results = await Promise.allSettled(
       (reportType?.sources || []).map((source) => collectSource(source.url, {
         origin: "configured",
-        searchQuery: reportType?.name || input.reportTypeName || "Custom Report",
+        searchQuery: reportType?.name || normalizedInput.reportTypeName || "Custom Report",
       })),
     );
     const sources = results.filter((result) => result.status === "fulfilled").map((result) => result.value);

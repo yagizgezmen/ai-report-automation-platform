@@ -18,6 +18,15 @@ export async function POST(request: Request) {
       await addReportType(
         input.name,
         input.description,
+        {
+          defaultLanguage: input.defaultLanguage,
+          enableWebResearch: input.enableWebResearch,
+          defaultAiPrompt: input.defaultAiPrompt,
+          creativityLevel: input.creativityLevel,
+          requireCitations: input.requireCitations,
+          reportTone: input.reportTone,
+          documentFormat: input.documentFormat,
+        },
         input.sections.map((section, index) => ({
           id: section.id || "",
           title: section.title,

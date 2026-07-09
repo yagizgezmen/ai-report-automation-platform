@@ -92,6 +92,13 @@ export interface ReportType {
   id: string;
   name: string;
   description: string;
+  defaultLanguage: string;
+  enableWebResearch: boolean;
+  defaultAiPrompt: string;
+  creativityLevel: number;
+  requireCitations: boolean;
+  reportTone: string;
+  documentFormat: string;
   sections: ReportTypeSectionConfig[];
   sources: ReportTypeSource[];
 }

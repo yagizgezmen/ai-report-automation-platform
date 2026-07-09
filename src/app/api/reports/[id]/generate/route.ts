@@ -14,10 +14,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const section = report.sections.find((item) => item.id === input.sectionId);
     if (!section) return NextResponse.json({ error: "Section not found." }, { status: 404 });
     const sectionIndex = report.sections.findIndex((item) => item.id === section.id);
+    let templateDefaultPrompt = "";
     let sectionAiPrompt = "";
     if (report.reportTypeId) {
       const template = await getReportType(report.reportTypeId);
       if (template) {
+        templateDefaultPrompt = template.defaultAiPrompt || "";
         const matchingSection = template.sections.find((templateSection) => templateSection.title === section.title)
           || template.sections.filter((templateSection) => templateSection.isEnabled)[sectionIndex];
         if (matchingSection && !matchingSection.isEnabled) {
@@ -26,8 +28,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         sectionAiPrompt = matchingSection?.aiPrompt || "";
       }
     }
+    const effectiveSectionPrompt = [templateDefaultPrompt.trim(), sectionAiPrompt.trim()].filter(Boolean).join("\n\n");
     jobId = await createGenerationJob(report.id, section.id);
-    const result = await generateSection(report, section, input.instruction, sectionAiPrompt);
+    const result = await generateSection(report, section, input.instruction, effectiveSectionPrompt);
     const persistedSources = await Promise.all(result.discoveredSources.map((source) => addSource(report.id, source)));
     const discoveredSources = persistedSources.filter((source): source is NonNullable<typeof source> => Boolean(source));
     const hasMissingData = result.missingWarnings.some((warning) =>

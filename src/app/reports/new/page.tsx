@@ -14,7 +14,8 @@ export default function NewReportPage() {
   const [saving, setSaving] = useState(false);
   const [loadingTypes, setLoadingTypes] = useState(true);
   const [error, setError] = useState("");
-  const [allowWebResearch, setAllowWebResearch] = useState(false);
+  const [allowWebResearch, setAllowWebResearch] = useState(true);
+  const [outputLanguage, setOutputLanguage] = useState("Turkish");
   const [reportTypes, setReportTypes] = useState<ReportType[]>([]);
   const [selectedReportTypeId, setSelectedReportTypeId] = useState("");
 
@@ -23,12 +24,25 @@ export default function NewReportPage() {
       .then(async (response) => {
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || "Rapor türleri yüklenemedi.");
-        setReportTypes(body);
-        setSelectedReportTypeId((current) => current || body[0]?.id || "");
+        const loadedTypes = body as ReportType[];
+        setReportTypes(loadedTypes);
+        const initialType = loadedTypes[0];
+        setSelectedReportTypeId((current) => current || initialType?.id || "");
+        if (initialType) {
+          setAllowWebResearch(initialType.enableWebResearch);
+          setOutputLanguage(initialType.defaultLanguage || "Turkish");
+        }
       })
       .catch((caught) => setError(caught.message))
       .finally(() => setLoadingTypes(false));
   }, []);
+
+  useEffect(() => {
+    const selectedType = reportTypes.find((type) => type.id === selectedReportTypeId);
+    if (!selectedType) return;
+    setAllowWebResearch(selectedType.enableWebResearch);
+    setOutputLanguage(selectedType.defaultLanguage || "Turkish");
+  }, [reportTypes, selectedReportTypeId]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -100,7 +114,18 @@ export default function NewReportPage() {
             </FormSection>
             <FormSection icon={<SlidersHorizontal size={18} />} title={t("outputPreferences")}>
               <div className="grid grid-cols-2 gap-4">
-                <Field label={t("outputLanguage")}><select name="outputLanguage" className="field" defaultValue="Turkish"><option value="Turkish">{t("turkish")}</option><option value="English">{t("english")}</option></select></Field>
+                <Field label={t("outputLanguage")}>
+                  <select
+                    name="outputLanguage"
+                    className="field"
+                    value={outputLanguage}
+                    onChange={(event) => setOutputLanguage(event.target.value)}
+                  >
+                    <option value="Turkish">{t("turkish")}</option>
+                    <option value="English">{t("english")}</option>
+                    <option value="German">{t("german")}</option>
+                  </select>
+                </Field>
                 <Field label={t("desiredLength")}><select name="desiredLength" className="field">{[40, 60, 65, 70].map((count) => <option key={count} value={count}>{t("pagesApprox", { count })}</option>)}</select></Field>
               </div>
             </FormSection>

@@ -103,11 +103,15 @@ export async function getReportType(id: string): Promise<ReportType | undefined>
 export async function addReportType(
   name: string,
   description: string,
+  configuration: Pick<
+    ReportType,
+    "defaultLanguage" | "enableWebResearch" | "defaultAiPrompt" | "creativityLevel" | "requireCitations" | "reportTone" | "documentFormat"
+  >,
   sections: ReportType["sections"] = [],
   sources: ReportType["sources"] = [],
 ): Promise<ReportType> {
   if (databaseEnabled) {
-    const created = await createReportType(name, description);
+    const created = await createReportType(name, description, configuration);
     if (!sections.length && !sources.length) return created;
     return saveReportType({
       ...created,
@@ -115,7 +119,7 @@ export async function addReportType(
       sources,
     });
   }
-  const created = (await demoStore()).createDemoReportType(name, description);
+  const created = (await demoStore()).createDemoReportType(name, description, configuration);
   if (!sections.length && !sources.length) return created;
   return (await demoStore()).saveDemoReportType({ ...created, sections, sources });
 }

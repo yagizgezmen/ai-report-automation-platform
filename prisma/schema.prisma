@@ -91,6 +91,12 @@ model ReportType {
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   defaultLanguage        String   @default("Turkish")
+  enableWebResearch      Boolean  @default(true)
+  defaultAiPrompt        String   @default("") @db.Text
+  creativityLevel        Int      @default(20)
+  requireCitations       Boolean  @default(true)
+  reportTone             String   @default("Technical")
+  documentFormat         String   @default("DOCX")
   defaultReportLength    Int      @default(65)
   enableDocxExport       Boolean  @default(true)
   enablePdfExport        Boolean  @default(false)
