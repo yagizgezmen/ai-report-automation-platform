@@ -28,15 +28,33 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       ? body.currentContent
       : section.content;
     await addChatMessage(report.id, section.id, "user", input.message);
-    const result = await editSectionWithAssistant(
-      report,
-      section,
-      input.message,
-      input.actionType,
-      currentContent,
-      templatePrompt,
-      sectionPrompt,
-    );
+
+    let result;
+    try {
+      result = await editSectionWithAssistant(
+        report,
+        section,
+        input.message,
+        input.actionType,
+        currentContent,
+        templatePrompt,
+        sectionPrompt,
+      );
+    } catch (aiError: unknown) {
+      const is413 = aiError instanceof Error && (
+        aiError.message.includes("413") ||
+        aiError.message.includes("too large") ||
+        aiError.message.includes("Request body")
+      );
+      const errorMsg = is413
+        ? (report.outputLanguage.toLowerCase().includes("türk") || report.outputLanguage.toLowerCase().includes("turk")
+          ? "İstek boyutu sınırı aştı. Lütfen daha az kaynak ekleyerek tekrar deneyin."
+          : "Request size exceeded the model limit. Please reduce sources and try again.")
+        : (aiError instanceof Error ? aiError.message : "AI request failed.");
+      await addChatMessage(report.id, section.id, "assistant", errorMsg);
+      return NextResponse.json({ updatedSection: null, assistantMessage: errorMsg, actionType: input.actionType });
+    }
+
     let updatedSection = result.updatedSection;
     if (updatedSection) {
       updatedSection = { ...updatedSection, content: updatedSection.content.trim() };

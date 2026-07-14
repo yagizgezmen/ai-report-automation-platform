@@ -1,7 +1,185 @@
 import OpenAI from "openai";
-import { rankChunks } from "@/lib/chunking";
+import { chunkText, rankChunks } from "@/lib/chunking";
 import { AssistantActionType, AssistantEditResponse, Report, ReportSection, Source } from "@/lib/types";
 import { researchWeb } from "@/lib/services/webResearchService";
+
+// ── Token budget utilities ────────────────────────────────────────────────────
+// ~3.5 chars per token (mixed Turkish/English). Conservative estimate.
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 3.5);
+}
+
+function truncateToBudget(text: string, tokenBudget: number): string {
+  const charLimit = tokenBudget * 3.5;
+  if (text.length <= charLimit) return text;
+  return text.slice(0, Math.floor(charLimit)) + "\n[... truncated for token limit ...]";
+}
+
+// ── Context budgets (tokens) ──────────────────────────────────────────────────
+const BUDGET = {
+  metadata: 400,
+  sectionInfo: 300,
+  promptRules: 700,
+  sources: 2200,
+  documents: 1500,
+  currentContent: 600,
+  total: 5500, // safe limit under 8k request cap
+};
+
+// ── Strict prompt rules ───────────────────────────────────────────────────────
+const STRICT_ANALYSIS_RULES = `
+CRITICAL RULES - VIOLATIONS WILL CAUSE REJECTION:
+1. Write the COMPLETED final report section — not a plan, not a template.
+2. Perform the ACTUAL analysis NOW using available evidence and project context.
+3. NEVER use these phrases (they will be flagged and rejected):
+   - "analiz edilmelidir" / "should be analyzed"
+   - "araştırılmalıdır" / "should be researched"
+   - "değerlendirilebilir" / "can be evaluated"
+   - "yapılabilir" / "can be done"
+   - "incelenebilir" / "can be examined"
+   - "daha sonra ele alınmalıdır" / "should be addressed later"
+   - "ilerleyen süreçte" / "in the coming period"
+   - "gerekli incelemeler yapılmalı" / "necessary examinations should be done"
+4. Write SPECIFIC findings: actual numbers, actual locations, actual competitors.
+5. The section must be specific to the given project, location, and report type.
+6. Return ONLY the final report content. No explanations. No status messages.
+`.trim();
+
+// ── Section-specific analytical guidance ─────────────────────────────────────
+function sectionAnalysisGuide(sectionTitle: string, report: Report): string {
+  const title = sectionTitle.toLocaleLowerCase("tr");
+  const location = report.location;
+
+  if (title.includes("pazar") || title.includes("market")) {
+    return `For this Market Analysis section, write actual findings covering:
+- Geographic market definition for ${location}
+- Target customer profile (demographics, income, behavior)
+- Demand indicators and current market size
+- Local competitors (list actual names, positioning)
+- Sector trends with specific data
+- Market opportunities
+- Market risks and threats
+- Evidence-based conclusion
+Use all available source data. Do NOT describe what market analysis is.`;
+  }
+  if (title.includes("rekabet") || title.includes("competi")) {
+    return `Write actual competitive landscape analysis for ${location}: list real competitors, their products/services, strengths/weaknesses, market shares if available, and competitive positioning.`;
+  }
+  if (title.includes("müşteri") || title.includes("hedef") || title.includes("customer")) {
+    return `Write actual target customer profile for ${location}: demographics, income levels, buying behavior, needs, segment sizes, and evidence-based conclusions.`;
+  }
+  if (title.includes("talep") || title.includes("demand")) {
+    return `Write actual demand analysis for ${location}: current demand level, growth trends, demand drivers, elasticity, forecasts with data, and conclusions.`;
+  }
+  if (title.includes("fizibilite") || title.includes("feasibilit")) {
+    return `Write actual feasibility findings: financial projections, cost estimates, revenue scenarios, NPV/ROI indicators, risks, and a clear go/no-go recommendation with reasoning.`;
+  }
+  if (title.includes("hukuk") || title.includes("yasal") || title.includes("legal") || title.includes("idari")) {
+    return `Write actual legal/administrative background: current zoning status, applicable regulations, permits required, legal constraints, and administrative history specific to ${location}.`;
+  }
+  if (title.includes("planlama") || title.includes("planning") || title.includes("imar")) {
+    return `Write actual planning context for ${location}: current zoning designations, master plan status, development rights, infrastructure capacity, and planning authority contacts.`;
+  }
+  if (title.includes("finansal") || title.includes("financial") || title.includes("mali")) {
+    return `Write actual financial analysis: revenue projections, cost breakdown, profitability timeline, funding requirements, sensitivity analysis, and financial risks.`;
+  }
+  if (title.includes("risk")) {
+    return `Write an actual risk assessment: identify specific risks (market, regulatory, financial, operational), assess probability and impact for each, and propose mitigation strategies.`;
+  }
+  if (title.includes("sonuç") || title.includes("conclusion") || title.includes("özet") || title.includes("summary")) {
+    return `Write a substantive conclusion/summary synthesizing the key findings from all report sections. Include specific recommendations and next steps.`;
+  }
+  return `Write substantive, evidence-based content for the "${sectionTitle}" section. Use specific data from the available sources and project context. Write actual findings, not generic descriptions.`;
+}
+
+// ── Content quality check ─────────────────────────────────────────────────────
+const GENERIC_PHRASES = [
+  "analiz edilmelidir", "araştırılmalıdır", "değerlendirilebilir",
+  "yapılabilir", "incelenebilir", "daha sonra ele alınmalıdır",
+  "ilerleyen süreçte", "gerekli incelemeler yapılmalı",
+  "should be analyzed", "should be researched", "can be evaluated",
+  "should be examined", "will be addressed later",
+  "müşteri profilleri belirlenmelidir", "rekabet analizi yapılmalıdır",
+  "pazar incelenmelidir", "bu faktörler değerlendirilmelidir",
+];
+
+export function isGenericContent(content: string): boolean {
+  const lower = content.toLocaleLowerCase("tr");
+  const genericCount = GENERIC_PHRASES.filter((phrase) => lower.includes(phrase)).length;
+  const wordCount = content.split(/\s+/).length;
+  return genericCount >= 2 || (genericCount >= 1 && wordCount < 150);
+}
+
+// ── Token-budgeted context builder ───────────────────────────────────────────
+function buildSectionGenerationContext(
+  report: Report,
+  section: ReportSection,
+  allSources: Source[],
+  sourceBudget = BUDGET.sources,
+  documentBudget = BUDGET.documents,
+): string {
+  const metadata = `PROJECT: ${report.projectName}
+TYPE: ${report.reportType}
+LOCATION: ${report.location}
+PARCEL: ${report.parcelInfo || "Not specified"}
+NOTES: ${report.manualNotes || "None"}
+LANGUAGE: ${report.outputLanguage}
+WEB RESEARCH: ${report.allowWebResearch ? "enabled" : "disabled"}`;
+
+  const query = `${section.title} ${section.description}`;
+
+  // Rank and chunk sources
+  const sourceChunks: string[] = [];
+  let sourceTokensUsed = 0;
+  const rankedSources = [...allSources]
+    .sort((a, b) => Number(b.isOfficial) - Number(a.isOfficial));
+
+  for (const source of rankedSources) {
+    const chunks = chunkText(source.content, 800, 100);
+    const relevant = rankChunks(query, chunks, 2);
+    for (const chunk of relevant) {
+      const line = `[${source.title}] ${chunk}`;
+      const cost = estimateTokens(line);
+      if (sourceTokensUsed + cost > sourceBudget) break;
+      sourceChunks.push(line);
+      sourceTokensUsed += cost;
+    }
+    if (sourceTokensUsed >= sourceBudget) break;
+  }
+
+  // Rank and chunk documents
+  const docChunks: string[] = [];
+  let docTokensUsed = 0;
+  for (const doc of report.documents) {
+    const chunks = chunkText(doc.extractedText, 800, 100);
+    const relevant = rankChunks(query, chunks, 2);
+    for (const chunk of relevant) {
+      const line = `[${doc.fileName}] ${chunk}`;
+      const cost = estimateTokens(line);
+      if (docTokensUsed + cost > documentBudget) break;
+      docChunks.push(line);
+      docTokensUsed += cost;
+    }
+    if (docTokensUsed >= documentBudget) break;
+  }
+
+  return `${metadata}
+
+SOURCES (${sourceChunks.length} relevant chunks)
+${sourceChunks.join("\n\n") || "No sources available. Use your knowledge of the location and project type."}
+
+DOCUMENTS (${docChunks.length} relevant chunks)
+${docChunks.join("\n\n") || "No documents uploaded."}`;
+}
+
+// ── Stricter prompt for retry ─────────────────────────────────────────────────
+function buildStricterPrompt(basePrompt: string): string {
+  return `${basePrompt}
+
+IMPORTANT: Your previous response was rejected because it contained generic future-work phrases.
+Write ONLY specific, concrete findings and analysis. No "should be done" statements.
+Every sentence must describe an actual finding, fact, or evidence-based conclusion.`;
+}
 
 export interface GenerationResult {
   content: string;
@@ -13,13 +191,7 @@ export interface GenerationResult {
 }
 
 export function reportLanguageInstruction(language: string) {
-  return `Write the entire output only in the report language: ${language}. Do not switch to English unless the report language is English. Translate section names, report type names, headings, warnings, and explanatory text into the report language.`;
-}
-
-function contextFor(report: Report, section: ReportSection, researchSources = report.sources) {
-  const sourceText = researchSources.map((source, index) => `[S${index + 1}] ${source.title}\n${source.content}`).join("\n\n");
-  const allChunks = report.documents.flatMap((doc) => rankChunks(`${section.title} ${section.description}`, [doc.extractedText], 2).map((text) => `[D:${doc.fileName}] ${text}`));
-  return `REPORT\nProject: ${report.projectName}\nType: ${report.reportType}\nLocation: ${report.location}\nParcel: ${report.parcelInfo}\nCompany notes: ${report.manualNotes}\nLanguage: ${report.outputLanguage}\nWeb research allowed: ${report.allowWebResearch ? "Yes" : "No"}\n\nSOURCES\n${sourceText || "No URL sources supplied."}\n\nDOCUMENTS\n${allChunks.join("\n\n") || "No documents supplied."}`;
+  return `Write the entire output only in the report language: ${language}. Do not switch to English unless the report language is English. Translate section names, report type names, headings, and all text into the report language.`;
 }
 
 function createOpenAIClient() {
@@ -40,6 +212,48 @@ async function chatCompletion(client: OpenAI, model: string, prompt: string): Pr
   return response.choices[0]?.message?.content ?? "";
 }
 
+function buildGenerationPrompt(
+  report: Report,
+  section: ReportSection,
+  instruction: string,
+  sectionAiPrompt: string,
+  allSources: Source[],
+  sourceBudget = BUDGET.sources,
+  documentBudget = BUDGET.documents,
+): string {
+  const context = buildSectionGenerationContext(report, section, allSources, sourceBudget, documentBudget);
+  const analysisGuide = sectionAnalysisGuide(section.title, report);
+  const aiPromptPart = sectionAiPrompt.trim() ? `SECTION CUSTOM PROMPT:\n${sectionAiPrompt.trim()}\n\n` : "";
+  const sourceIds = allSources.map((s, i) => `S${i + 1}=${s.id}`).join(", ");
+
+  return `You are a senior professional report writer.
+
+${STRICT_ANALYSIS_RULES}
+
+${reportLanguageInstruction(report.outputLanguage)}
+
+SECTION TO WRITE: ${sectionName(report, section)}
+PURPOSE: ${section.description}
+${aiPromptPart}ANALYTICAL REQUIREMENTS:
+${analysisGuide}
+
+USER INSTRUCTION: ${instruction || "Write a complete, evidence-based section with specific findings."}
+
+Return strict JSON with these exact keys:
+{
+  "content": "<final report section text — no explanations, no status messages>",
+  "confidence": "High|Medium|Low",
+  "sourceIds": ["<array of source IDs from context>"],
+  "unsupportedClaims": ["<claims without source support>"],
+  "missingWarnings": ["<data gaps that affect findings>"]
+}
+
+CONTEXT:
+${truncateToBudget(context, BUDGET.sources + BUDGET.documents + BUDGET.metadata)}
+
+SOURCE IDS IN ORDER: ${sourceIds || "none"}`;
+}
+
 export async function generateSection(
   report: Report,
   section: ReportSection,
@@ -47,43 +261,67 @@ export async function generateSection(
   sectionAiPrompt = "",
 ): Promise<GenerationResult> {
   if (!process.env.OPENAI_API_KEY) return demoGeneration(report, section);
+
   const webSources = await researchWeb({ report, section, instruction });
   const allSources = [...report.sources, ...webSources];
   const client = createOpenAIClient();
   const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  const aiPromptInstruction = sectionAiPrompt.trim()
-    ? `SECTION AI PROMPT:\n${sectionAiPrompt.trim()}\n`
-    : "";
-  const prompt = `You are a senior professional report writer. Draft only the requested section using exclusively the supplied context.
-Never invent facts. Keep the section body free of explanations, review notes, status markers, and assistant commentary. Put support issues only in the JSON fields, not in the report text.
-${reportLanguageInstruction(report.outputLanguage)}
-${report.allowWebResearch
-    ? "Web research is enabled, but you may use only the research results explicitly included in SOURCES. Never rely on hidden model knowledge."
-    : "Web research is disabled. Use only configured sources, uploaded documents, and user notes. Never use external or background knowledge."}
-Return strict JSON with keys: content, confidence (High|Medium|Low), sourceIds (array of exact source IDs), unsupportedClaims (array), missingWarnings (array).
 
-SECTION: ${sectionName(report, section)}
-PURPOSE: ${section.description}
-${aiPromptInstruction}
-USER INSTRUCTION: ${instruction || "Draft formal, clear business prose."}
+  const tryGenerate = async (srcBudget: number, docBudget: number, stricter = false): Promise<string> => {
+    let prompt = buildGenerationPrompt(report, section, instruction, sectionAiPrompt, allSources, srcBudget, docBudget);
+    if (stricter) prompt = buildStricterPrompt(prompt);
+    return chatCompletion(client, model, prompt);
+  };
 
-${contextFor(report, section, allSources)}
-
-SOURCE IDS IN ORDER: ${allSources.map((source, index) => `S${index + 1}=${source.id}`).join(", ")}`;
-  const outputText = await chatCompletion(client, model, prompt);
+  let outputText: string;
   try {
-    const parsed = JSON.parse(outputText) as Omit<GenerationResult, "discoveredSources">;
-    return { ...parsed, discoveredSources: webSources };
-  } catch {
-    return {
-      content: outputText,
-      confidence: "Low",
-      sourceIds: [],
-      unsupportedClaims: [],
-      missingWarnings: ["AI response requires manual validation."],
-      discoveredSources: webSources,
-    };
+    outputText = await tryGenerate(BUDGET.sources, BUDGET.documents);
+  } catch (err: unknown) {
+    const is413 = err instanceof Error && (err.message.includes("413") || err.message.includes("too large") || err.message.includes("token"));
+    if (!is413) throw err;
+    // Retry with reduced budgets
+    outputText = await tryGenerate(Math.floor(BUDGET.sources * 0.5), Math.floor(BUDGET.documents * 0.5));
   }
+
+  const parseResult = (): GenerationResult => {
+    try {
+      const parsed = JSON.parse(outputText) as Omit<GenerationResult, "discoveredSources">;
+      return { ...parsed, discoveredSources: webSources };
+    } catch {
+      return {
+        content: sanitizeSectionContent(outputText),
+        confidence: "Low",
+        sourceIds: [],
+        unsupportedClaims: [],
+        missingWarnings: ["AI response requires manual validation."],
+        discoveredSources: webSources,
+      };
+    }
+  };
+
+  let result = parseResult();
+
+  // Quality check: retry once with stricter prompt if output is generic
+  if (isGenericContent(result.content)) {
+    try {
+      const stricterOutput = await tryGenerate(BUDGET.sources, BUDGET.documents, true);
+      const stricterResult = (() => {
+        try {
+          const parsed = JSON.parse(stricterOutput) as Omit<GenerationResult, "discoveredSources">;
+          return { ...parsed, discoveredSources: webSources };
+        } catch {
+          return { content: sanitizeSectionContent(stricterOutput), confidence: "Low" as const, sourceIds: [], unsupportedClaims: [], missingWarnings: [], discoveredSources: webSources };
+        }
+      })();
+      if (!isGenericContent(stricterResult.content)) {
+        result = stricterResult;
+      }
+    } catch {
+      // Keep original result if retry fails
+    }
+  }
+
+  return result;
 }
 
 export async function editSectionWithAssistant(
@@ -115,11 +353,43 @@ export async function editSectionWithAssistant(
   const webSources = report.allowWebResearch
     ? await researchWeb({ report, section, instruction })
     : [];
+
   const client = createOpenAIClient();
   const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  const outputText = await chatCompletion(client, model, buildAssistantEditPrompt(report, section, instruction, sourceContent, webSources, templatePrompt, sectionPrompt));
-  const parsed = parseAssistantEditResponse(outputText);
-  const cleanedContent = sanitizeSectionContent(parsed.updatedContent || "");
+
+  const tryEdit = async (srcBudget: number, docBudget: number, stricter = false): Promise<string> => {
+    let prompt = buildAssistantEditPrompt(report, section, instruction, sourceContent, [...report.sources, ...webSources], templatePrompt, sectionPrompt, srcBudget, docBudget);
+    if (stricter) prompt = buildStricterPrompt(prompt);
+    return chatCompletion(client, model, prompt);
+  };
+
+  let outputText: string;
+  try {
+    outputText = await tryEdit(BUDGET.sources, BUDGET.documents);
+  } catch (err: unknown) {
+    const is413 = err instanceof Error && (err.message.includes("413") || err.message.includes("too large") || err.message.includes("token"));
+    if (!is413) throw err;
+    outputText = await tryEdit(Math.floor(BUDGET.sources * 0.5), Math.floor(BUDGET.documents * 0.5));
+  }
+
+  let parsed = parseAssistantEditResponse(outputText);
+  let cleanedContent = sanitizeSectionContent(parsed.updatedContent || "");
+
+  // Quality check: retry once if output is generic
+  if (cleanedContent && isGenericContent(cleanedContent)) {
+    try {
+      const stricterOutput = await tryEdit(BUDGET.sources, BUDGET.documents, true);
+      const stricterParsed = parseAssistantEditResponse(stricterOutput);
+      const stricterCleaned = sanitizeSectionContent(stricterParsed.updatedContent || "");
+      if (stricterCleaned && !isGenericContent(stricterCleaned)) {
+        parsed = stricterParsed;
+        cleanedContent = stricterCleaned;
+      }
+    } catch {
+      // Keep original result
+    }
+  }
+
   return {
     updatedSection: {
       ...section,
@@ -230,45 +500,42 @@ function buildAssistantEditPrompt(
   section: ReportSection,
   instruction: string,
   currentContent: string,
-  webSources: Source[],
+  allSources: Source[],
   templatePrompt = "",
   sectionPrompt = "",
-) {
-  const sourceBlock = webSources.length
-    ? webSources.map((source, index) => `[WS${index + 1}] ${source.title}\n${source.content}`).join("\n\n")
-    : "No web research sources.";
-  return `You are editing a report section. Return only JSON with keys updatedContent and assistantMessage.
-Return only the final report section content.
+  sourceBudget = BUDGET.sources,
+  documentBudget = BUDGET.documents,
+): string {
+  const analysisGuide = sectionAnalysisGuide(section.title, report);
+  const context = buildSectionGenerationContext(report, section, allSources, sourceBudget, documentBudget);
+  const truncatedContent = truncateToBudget(currentContent, BUDGET.currentContent);
+  const customPromptPart = [templatePrompt, sectionPrompt].filter(Boolean).map((p) => `- ${p}`).join("\n");
 
-Do not include:
-- explanations
-- status messages
-- editing summaries
-- warnings to the user
-- phrases describing what you changed
-- phrases such as "the section was updated"
-- manual review notes
+  return `You are editing a professional report section. Return ONLY JSON with keys "updatedContent" and "assistantMessage".
 
-The output will be stored directly inside the report document.
+${STRICT_ANALYSIS_RULES}
 
-The assistantMessage must be short and belong only in the chat panel.
+${reportLanguageInstruction(report.outputLanguage)}
 
-Report language: ${report.outputLanguage}
-Section title: ${section.title}
-Section description: ${section.description}
-Template prompt: ${templatePrompt || "None"}
-Section prompt: ${sectionPrompt || "None"}
-Current content:
-${currentContent}
+SECTION: ${section.title}
+SECTION PURPOSE: ${section.description}
+${customPromptPart ? `CUSTOM PROMPTS:\n${customPromptPart}\n` : ""}
+ANALYTICAL REQUIREMENTS FOR THIS SECTION:
+${analysisGuide}
 
-Instruction:
-${instruction}
+CURRENT CONTENT (edit this using the instruction below):
+${truncatedContent}
 
-Report context:
-${contextFor(report, section, [...report.sources, ...webSources])}
+USER INSTRUCTION: ${instruction}
 
-Web research sources:
-${sourceBlock}`;
+AVAILABLE EVIDENCE:
+${truncateToBudget(context, sourceBudget + documentBudget + BUDGET.metadata)}
+
+Return JSON in this exact format:
+{
+  "updatedContent": "<rewritten final report section — specific findings, no generic phrases, no AI commentary>",
+  "assistantMessage": "<short confirmation for chat panel only, e.g. 'Pazar analizi güncellendi.'>"
+}`;
 }
 
 function parseAssistantEditResponse(raw: string) {

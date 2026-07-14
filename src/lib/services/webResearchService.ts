@@ -21,18 +21,26 @@ const NATIONAL_TRUSTED_URLS = [
   "https://www.csb.gov.tr/",
 ];
 
-export function buildWebResearchQueries(report: Report, section: ReportSection): string[] {
+export function buildWebResearchQueries(report: Report, section: ReportSection, instruction = ""): string[] {
   const [city = "", district = "", neighborhood = ""] = report.location.split("/").map((item) => item.trim());
   const area = [neighborhood, district, city].filter(Boolean).join(" ");
   const parcel = report.parcelInfo?.trim();
+
+  // Extract meaningful keywords from the instruction (skip short/common words)
+  const instructionKeywords = instruction
+    ? instruction.toLocaleLowerCase("tr").split(/\W+/).filter((w) => w.length > 4).slice(0, 4).join(" ")
+    : "";
+
   const parts = [
     `${report.reportType} ${section.title} ${area}`.trim(),
     `${section.title} ${city} ${district} ${neighborhood} ${parcel || ""}`.trim(),
-    `${report.reportType} ${city} ${district} official statistics`.trim(),
+    instructionKeywords ? `${instructionKeywords} ${city} ${district}`.trim() : `${report.reportType} ${city} ${district} official statistics`.trim(),
     `${report.reportType} ${city} ${district} municipality zoning plan`.trim(),
     `${report.reportType} ${city} ${district} legal administrative background`.trim(),
     `${section.title} ${parcel || ""} ${city} ${district}`.trim(),
-  ];
+    city && district ? `${district} ${section.title} istatistik veri TÜİK`.trim() : "",
+    city && district ? `${district} ${city} demographics population income`.trim() : "",
+  ].filter(Boolean);
   return [...new Set(parts.map((item) => item.replace(/\s+/g, " ").trim()).filter(Boolean))];
 }
 
@@ -132,7 +140,7 @@ export async function researchWeb(
 ): Promise<Source[]> {
   if (!request.report.allowWebResearch) return [];
 
-  const queries = buildWebResearchQueries(request.report, request.section);
+  const queries = buildWebResearchQueries(request.report, request.section, request.instruction);
   const existingUrls = new Set(request.report.sources.map((source) => normalizeUrl(source.url)));
   const candidateMap = new Map<string, ResearchCandidate>();
   const seedUrls = request.report.sources
