@@ -45,7 +45,7 @@ export async function generateSection(
     ? `SECTION AI PROMPT:\n${sectionAiPrompt.trim()}\n`
     : "";
   const prompt = `You are a senior professional report writer. Draft only the requested section using exclusively the supplied context.
-Never invent facts. Cite URL sources as [S1], [S2] and documents as [D:filename]. Append [Needs manual review] to any sentence that cannot be fully supported.
+Never invent facts. Keep the section body free of explanations, review notes, status markers, and assistant commentary. Put support issues only in the JSON fields, not in the report text.
 ${reportLanguageInstruction(report.outputLanguage)}
 ${report.allowWebResearch
     ? "Web research is enabled, but you may use only the research results explicitly included in SOURCES. Never rely on hidden model knowledge."
@@ -100,11 +100,11 @@ export async function chatAboutSection(
 
   if (!process.env.OPENAI_API_KEY) {
     if (action === "rewrite") {
-      const result = await demoGeneration(report, section);
+      const rewritten = rewriteDemoSection(report, section, message);
       const reply = isTurkish(report)
         ? "Bölüm yeniden yazıldı ve içerik güncellendi."
         : "The section was rewritten and content was updated.";
-      return { reply, proposedContent: result.content, warnings: result.missingWarnings, discoveredSources: [] };
+      return { reply, proposedContent: rewritten, warnings: [], discoveredSources: [] };
     }
     const reply = isTurkish(report)
       ? "Yardımcı asistan yanıtı oluşturuldu. İçeriği değiştirmek için bir düzenleme isteği verin."
@@ -123,6 +123,7 @@ If no rewrite is explicitly requested, set proposedContent to null and keep expl
   const response = await client.responses.create({
     model: process.env.OPENAI_MODEL || "gpt-5.4-mini",
     input: `Act as an evidence-grounded report editing assistant. Respond to the user's request using only the supplied context.
+The assistant reply belongs only in the chat panel. Never place explanations, warnings, or process notes in proposedContent.
 ${reportLanguageInstruction(report.outputLanguage)}
 ${report.allowWebResearch
     ? "Use only the explicit web research results included in SOURCES."
@@ -153,9 +154,7 @@ export function demoGeneration(
   const evidence = report.sources.length + report.documents.length;
   const base = `${section.title} has been prepared for the ${report.projectName} project in ${report.location}. This section consolidates the available project information${report.sources.length ? ", official source material," : ""} and company-provided context into a structured professional assessment.${citations}
 
-The subject is considered within the stated scope of the ${report.reportType}. ${report.parcelInfo ? `The supplied property reference is ${report.parcelInfo}.` : "Parcel-specific information has not yet been supplied [Needs manual review]."} Any conclusion that depends on current statutory records, plan notes, or third-party approvals should be confirmed against the latest competent-authority documentation before issue.${citations}
-
-The available record supports a preliminary narrative, while unresolved data points are retained as explicit review items rather than presented as established facts.`;
+The subject is considered within the stated scope of the ${report.reportType}. ${report.parcelInfo ? `The supplied property reference is ${report.parcelInfo}.` : "Parcel-specific information has not yet been supplied."} Any conclusion that depends on current statutory records, plan notes, or third-party approvals should be confirmed against the latest competent-authority documentation before issue.${citations}`;
   return {
     content: base,
     confidence: evidence > 1 ? "High" : evidence === 1 ? "Medium" : "Low",
@@ -179,12 +178,10 @@ function demoGenerationTurkish(
   const evidence = report.sources.length + report.documents.length;
   const parcel = report.parcelInfo
     ? `İletilen taşınmaz bilgisi ${report.parcelInfo} olarak kaydedilmiştir.`
-    : "Parsel bazlı bilgi henüz sağlanmamıştır [Manuel inceleme gerekli].";
+    : "Parsel bazlı bilgi henüz sağlanmamıştır.";
   const content = `${sectionName(report, section)}, ${report.location} konumundaki ${report.projectName} projesi için hazırlanmıştır. Bu bölüm, mevcut proje bilgilerini${report.sources.length ? ", tanımlı kaynakları" : ""} ve şirket tarafından sağlanan bağlamı resmî ve profesyonel bir değerlendirme içinde birleştirir.${citations}
 
-Çalışma, ${reportTypeName(report)} kapsamında ele alınmıştır. ${parcel} Güncel mevzuat kayıtlarına, plan notlarına veya üçüncü taraf onaylarına bağlı tüm sonuçlar nihai rapor yayımlanmadan önce yetkili kurum belgeleriyle doğrulanmalıdır.${citations}
-
-Mevcut kayıtlar ön değerlendirme yapılmasına olanak tanımakta; çözümlenmemiş veri noktaları kesin bilgi gibi sunulmak yerine açık inceleme maddeleri olarak korunmaktadır.`;
+Çalışma, ${reportTypeName(report)} kapsamında ele alınmıştır. ${parcel} Güncel mevzuat kayıtlarına, plan notlarına veya üçüncü taraf onaylarına bağlı tüm sonuçlar nihai rapor yayımlanmadan önce yetkili kurum belgeleriyle doğrulanmalıdır.${citations}`;
 
   return {
     content,
@@ -196,6 +193,42 @@ Mevcut kayıtlar ön değerlendirme yapılmasına olanak tanımakta; çözümlen
       : ["Olgusal iddiaları desteklemek için tanımlı bir kaynak veya belge ekleyin."],
     discoveredSources: [],
   };
+}
+
+function rewriteDemoSection(report: Report, section: ReportSection, instruction: string) {
+  const cleaned = cleanupSectionContent(section.content || demoGeneration(report, section).content);
+  const directive = instruction.toLocaleLowerCase("tr");
+  if (directive.includes("resm") || directive.includes("formal")) {
+    return cleaned.replace(/\bbu bölüm\b/gi, isTurkish(report) ? "bu rapor bölümü" : "this report section");
+  }
+  if (directive.includes("kanıt") || directive.includes("evidence")) {
+    return appendIfMissing(cleaned, isTurkish(report)
+      ? "Metin, mevcut resmî kaynaklar ve yüklenen belgeler temel alınarak güncellendi."
+      : "The text was updated using the available official sources and uploaded documents.");
+  }
+  if (directive.includes("resmî") || directive.includes("official")) {
+    return appendIfMissing(cleaned, isTurkish(report)
+      ? "Metin yalnızca tanımlı resmî kaynaklar ve yüklenen belgeler temel alınarak hazırlandı."
+      : "The text was prepared using only the configured official sources and uploaded documents.");
+  }
+  return cleaned;
+}
+
+function cleanupSectionContent(content: string) {
+  return content
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph
+      .split(/(?<=[.!?])\s+/)
+      .filter((sentence) => !/(manual review|Needs manual review|desteksiz|inceleme gerekli|açık inceleme|unsupported|review item|uyarı|not yet supplied)/i.test(sentence))
+      .join(" ")
+      .trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function appendIfMissing(content: string, sentence: string) {
+  if (content.includes(sentence)) return content;
+  return `${content}\n\n${sentence}`;
 }
 
 function sectionName(report: Report, section: ReportSection) {
