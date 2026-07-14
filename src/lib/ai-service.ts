@@ -22,6 +22,24 @@ function contextFor(report: Report, section: ReportSection, researchSources = re
   return `REPORT\nProject: ${report.projectName}\nType: ${report.reportType}\nLocation: ${report.location}\nParcel: ${report.parcelInfo}\nCompany notes: ${report.manualNotes}\nLanguage: ${report.outputLanguage}\nWeb research allowed: ${report.allowWebResearch ? "Yes" : "No"}\n\nSOURCES\n${sourceText || "No URL sources supplied."}\n\nDOCUMENTS\n${allChunks.join("\n\n") || "No documents supplied."}`;
 }
 
+function createOpenAIClient() {
+  const config: ConstructorParameters<typeof OpenAI>[0] = {
+    apiKey: process.env.OPENAI_API_KEY,
+  };
+  if (process.env.OPENAI_BASE_URL) {
+    config.baseURL = process.env.OPENAI_BASE_URL;
+  }
+  return new OpenAI(config);
+}
+
+async function chatCompletion(client: OpenAI, model: string, prompt: string): Promise<string> {
+  const response = await client.chat.completions.create({
+    model,
+    messages: [{ role: "user", content: prompt }],
+  });
+  return response.choices[0]?.message?.content ?? "";
+}
+
 export async function generateSection(
   report: Report,
   section: ReportSection,
@@ -31,7 +49,8 @@ export async function generateSection(
   if (!process.env.OPENAI_API_KEY) return demoGeneration(report, section);
   const webSources = await researchWeb({ report, section, instruction });
   const allSources = [...report.sources, ...webSources];
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const client = createOpenAIClient();
+  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
   const aiPromptInstruction = sectionAiPrompt.trim()
     ? `SECTION AI PROMPT:\n${sectionAiPrompt.trim()}\n`
     : "";
@@ -51,16 +70,13 @@ USER INSTRUCTION: ${instruction || "Draft formal, clear business prose."}
 ${contextFor(report, section, allSources)}
 
 SOURCE IDS IN ORDER: ${allSources.map((source, index) => `S${index + 1}=${source.id}`).join(", ")}`;
-  const response = await client.responses.create({
-    model: process.env.OPENAI_MODEL || "gpt-5.4-mini",
-    input: prompt,
-  });
+  const outputText = await chatCompletion(client, model, prompt);
   try {
-    const parsed = JSON.parse(response.output_text) as Omit<GenerationResult, "discoveredSources">;
+    const parsed = JSON.parse(outputText) as Omit<GenerationResult, "discoveredSources">;
     return { ...parsed, discoveredSources: webSources };
   } catch {
     return {
-      content: response.output_text,
+      content: outputText,
       confidence: "Low",
       sourceIds: [],
       unsupportedClaims: [],
@@ -99,12 +115,10 @@ export async function editSectionWithAssistant(
   const webSources = report.allowWebResearch
     ? await researchWeb({ report, section, instruction })
     : [];
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const response = await client.responses.create({
-    model: process.env.OPENAI_MODEL || "gpt-5.4-mini",
-    input: buildAssistantEditPrompt(report, section, instruction, sourceContent, webSources, templatePrompt, sectionPrompt),
-  });
-  const parsed = parseAssistantEditResponse(response.output_text);
+  const client = createOpenAIClient();
+  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+  const outputText = await chatCompletion(client, model, buildAssistantEditPrompt(report, section, instruction, sourceContent, webSources, templatePrompt, sectionPrompt));
+  const parsed = parseAssistantEditResponse(outputText);
   const cleanedContent = sanitizeSectionContent(parsed.updatedContent || "");
   return {
     updatedSection: {
