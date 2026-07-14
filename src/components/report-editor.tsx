@@ -7,13 +7,13 @@ import {
   Plus, Save, Send, ShieldCheck, Sparkles, Upload, WandSparkles,
 } from "lucide-react";
 import Link from "next/link";
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LanguageSelector, useLanguage } from "@/components/language-provider";
 import { localizeConfidence, localizeReportStatus, localizeReportType, localizeReviewStatus, localizeSection } from "@/lib/localization";
 
 type Tab = "assistant" | "sources" | "review";
-type ChatItem = { role: "user" | "assistant"; text: string; proposedContent?: string | null };
-type AssistantAction = "chat" | "rewrite" | "show_unsupported";
+type ChatItem = { role: "user" | "assistant"; text: string };
+type AssistantAction = "rewrite" | "show_unsupported";
 
 export function ReportEditor({ reportId }: { reportId: string }) {
   const { language, t } = useLanguage();
@@ -27,15 +27,18 @@ export function ReportEditor({ reportId }: { reportId: string }) {
   const [sourceUrl, setSourceUrl] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    fetch(`/api/reports/${reportId}`).then(async (response) => {
-      if (!response.ok) throw new Error("Rapor bulunamadı.");
-      return response.json();
-    }).then((data: Report) => {
-      setReport(data);
-      setActiveId(data.sections[0]?.id || "");
-    }).catch((caught) => setError(caught.message));
+  const loadReport = useCallback(async function loadReport() {
+    const response = await fetch(`/api/reports/${reportId}`);
+    if (!response.ok) throw new Error("Rapor bulunamadı.");
+    const data = await response.json() as Report;
+    setReport(data);
+    setActiveId((current) => current || data.sections[0]?.id || "");
+    return data;
   }, [reportId]);
+
+  useEffect(() => {
+    loadReport().catch((caught) => setError(caught.message));
+  }, [loadReport]);
 
   const section = useMemo(() => report?.sections.find((item) => item.id === activeId), [report, activeId]);
   const completed = report?.sections.filter((item) => item.reviewStatus !== "Not started").length || 0;
@@ -87,7 +90,7 @@ export function ReportEditor({ reportId }: { reportId: string }) {
     setBusy("");
   }
 
-  async function askAssistant(action: AssistantAction = "chat", overrideMessage?: string) {
+  async function askAssistant(actionType: AssistantAction = "rewrite", overrideMessage?: string) {
     if (!report || !section) return;
     const prompt = (overrideMessage || message).trim();
     if (!prompt) return;
@@ -96,26 +99,15 @@ export function ReportEditor({ reportId }: { reportId: string }) {
     setBusy("chat");
     const response = await fetch(`/api/reports/${report.id}/chat`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sectionId: section.id, message: prompt, action }),
+      body: JSON.stringify({ sectionId: section.id, message: prompt, currentContent: section.content, actionType }),
     });
     const body = await response.json();
-    setChat((items) => [
-      ...items,
-      {
-        role: "assistant",
-        text: body.reply || body.error,
-        proposedContent: action === "chat" ? body.proposedContent : null,
-      },
-    ]);
-    if (response.ok) {
+    setChat((items) => [...items, { role: "assistant", text: body.assistantMessage || body.error }]);
+    if (response.ok && body.updatedSection) {
       setReport((current) => {
         if (!current) return current;
-        const mergedSources = mergeSources(current.sources, body.discoveredSources || []);
-        const nextSections = body.section
-          ? current.sections.map((item) => item.id === body.section.id ? body.section : item)
-          : current.sections;
-        const nextStatus = body.section ? "In Progress" : current.status;
-        return { ...current, sources: mergedSources, sections: nextSections, status: nextStatus };
+        const nextSections = current.sections.map((item) => item.id === body.updatedSection.id ? body.updatedSection : item);
+        return { ...current, sections: nextSections };
       });
     }
     setBusy("");
@@ -275,15 +267,14 @@ export function ReportEditor({ reportId }: { reportId: string }) {
                 {chat.map((item, index) => (
                   <div key={index} className={`rounded-xl p-3 text-[11px] leading-5 ${item.role === "assistant" ? "bg-slate-100 text-slate-700" : "ml-7 bg-blue-600 text-white"}`}>
                     {item.text}
-                    {item.proposedContent && <button onClick={() => updateSection({ content: item.proposedContent || "", reviewStatus: "Needs review" })} className="mt-2 flex items-center gap-1 rounded-md bg-white px-2 py-1 text-[9px] font-bold text-blue-700"><Check size={11} /> {t("applyRevision")}</button>}
                   </div>
                 ))}
                 {busy === "chat" && <div className="flex items-center gap-2 text-[10px] text-slate-500"><Loader2 size={13} className="animate-spin" /> {t("reviewingContext")}</div>}
               </div>
               <div className="border-t border-slate-200 p-3">
                 <div className="rounded-xl border border-slate-200 p-2">
-                  <textarea value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); askAssistant(); } }} className="h-16 w-full resize-none border-0 p-1 text-[11px] outline-none" placeholder={t("askSection")} />
-                  <div className="flex justify-end"><button onClick={() => askAssistant()} className="rounded-lg bg-blue-600 p-2 text-white"><Send size={13} /></button></div>
+                  <textarea value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); askAssistant("rewrite"); } }} className="h-16 w-full resize-none border-0 p-1 text-[11px] outline-none" placeholder={t("askSection")} />
+                  <div className="flex justify-end"><button onClick={() => askAssistant("rewrite")} className="rounded-lg bg-blue-600 p-2 text-white"><Send size={13} /></button></div>
                 </div>
               </div>
             </>

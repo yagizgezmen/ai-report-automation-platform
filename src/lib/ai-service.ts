@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { rankChunks } from "@/lib/chunking";
-import { Report, ReportSection, Source } from "@/lib/types";
+import { AssistantActionType, AssistantEditResponse, Report, ReportSection, Source } from "@/lib/types";
 import { researchWeb } from "@/lib/services/webResearchService";
 
 export interface GenerationResult {
@@ -11,15 +11,6 @@ export interface GenerationResult {
   missingWarnings: string[];
   discoveredSources: Source[];
 }
-
-export interface ChatResult {
-  reply: string;
-  proposedContent: string | null;
-  warnings: string[];
-  discoveredSources: Source[];
-}
-
-type ChatAction = "chat" | "rewrite" | "show_unsupported";
 
 export function reportLanguageInstruction(language: string) {
   return `Write the entire output only in the report language: ${language}. Do not switch to English unless the report language is English. Translate section names, report type names, headings, warnings, and explanatory text into the report language.`;
@@ -79,70 +70,50 @@ SOURCE IDS IN ORDER: ${allSources.map((source, index) => `S${index + 1}=${source
   }
 }
 
-export async function chatAboutSection(
+export async function editSectionWithAssistant(
   report: Report,
   section: ReportSection,
-  message: string,
-  action: ChatAction = "chat",
-): Promise<ChatResult> {
-  if (action === "show_unsupported") {
-    const unsupported = section.unsupportedClaims.length
-      ? section.unsupportedClaims.map((item) => `- ${item}`).join("\n")
-      : (isTurkish(report) ? "Desteksiz iddia bulunmadı." : "No unsupported claims detected.");
-    const missing = section.missingWarnings.length
-      ? section.missingWarnings.map((item) => `- ${item}`).join("\n")
-      : (isTurkish(report) ? "Eksik bilgi uyarısı bulunmadı." : "No missing information warnings detected.");
-    const reply = isTurkish(report)
-      ? `Desteksiz iddia analizi tamamlandı.\n\nDesteksiz iddialar:\n${unsupported}\n\nEksik bilgi uyarıları:\n${missing}`
-      : `Unsupported-claim analysis completed.\n\nUnsupported claims:\n${unsupported}\n\nMissing-information warnings:\n${missing}`;
-    return { reply, proposedContent: null, warnings: [], discoveredSources: [] };
+  instruction: string,
+  actionType: AssistantActionType = "rewrite",
+  currentContent = "",
+  templatePrompt = "",
+  sectionPrompt = "",
+): Promise<AssistantEditResponse> {
+  const sourceContent = currentContent || section.content;
+
+  if (actionType === "show_unsupported") {
+    return analyzeUnsupportedClaims(report, sourceContent);
   }
 
   if (!process.env.OPENAI_API_KEY) {
-    if (action === "rewrite") {
-      const rewritten = rewriteDemoSection(report, section, message);
-      const reply = isTurkish(report)
-        ? "Bölüm yeniden yazıldı ve içerik güncellendi."
-        : "The section was rewritten and content was updated.";
-      return { reply, proposedContent: rewritten, warnings: [], discoveredSources: [] };
-    }
-    const reply = isTurkish(report)
-      ? "Yardımcı asistan yanıtı oluşturuldu. İçeriği değiştirmek için bir düzenleme isteği verin."
-      : "Assistant response generated. Ask for an editing action to change section content.";
-    return { reply, proposedContent: null, warnings: [], discoveredSources: [] };
+    return {
+      updatedSection: {
+        ...section,
+        content: rewriteDemoSection(report, section, sourceContent, instruction, templatePrompt, sectionPrompt),
+      },
+      assistantMessage: assistantRewriteMessage(report),
+      actionType,
+    };
   }
-  const webSources = await researchWeb({ report, section, instruction: message });
+
+  const webSources = report.allowWebResearch
+    ? await researchWeb({ report, section, instruction })
+    : [];
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const modeInstruction = action === "rewrite"
-    ? `Return JSON with keys: reply, proposedContent, warnings.
-proposedContent must contain only the final rewritten section body.
-Do not include explanations, meta-notes, assistant commentary, or prefixes like "Based on your request".
-Preserve paragraph structure and keep existing citations when still valid.`
-    : `Return JSON with keys: reply, proposedContent, warnings.
-If no rewrite is explicitly requested, set proposedContent to null and keep explanations in reply only.`;
   const response = await client.responses.create({
     model: process.env.OPENAI_MODEL || "gpt-5.4-mini",
-    input: `Act as an evidence-grounded report editing assistant. Respond to the user's request using only the supplied context.
-The assistant reply belongs only in the chat panel. Never place explanations, warnings, or process notes in proposedContent.
-${reportLanguageInstruction(report.outputLanguage)}
-${report.allowWebResearch
-    ? "Use only the explicit web research results included in SOURCES."
-    : "Web research is disabled. Do not use external or background knowledge."}
-${modeInstruction}
-
-CURRENT SECTION:
-${section.content}
-
-REQUEST:
-${message}
-
-${contextFor(report, section, [...report.sources, ...webSources])}`,
+    input: buildAssistantEditPrompt(report, section, instruction, sourceContent, webSources, templatePrompt, sectionPrompt),
   });
-  try {
-    return { ...JSON.parse(response.output_text), discoveredSources: webSources } as ChatResult;
-  } catch {
-    return { reply: response.output_text, proposedContent: null, warnings: [], discoveredSources: webSources };
-  }
+  const parsed = parseAssistantEditResponse(response.output_text);
+  const cleanedContent = sanitizeSectionContent(parsed.updatedContent || "");
+  return {
+    updatedSection: {
+      ...section,
+      content: cleanedContent,
+    },
+    assistantMessage: parsed.assistantMessage || assistantRewriteMessage(report),
+    actionType,
+  };
 }
 
 export function demoGeneration(
@@ -195,40 +166,197 @@ function demoGenerationTurkish(
   };
 }
 
-function rewriteDemoSection(report: Report, section: ReportSection, instruction: string) {
-  const cleaned = cleanupSectionContent(section.content || demoGeneration(report, section).content);
+function rewriteDemoSection(
+  report: Report,
+  section: ReportSection,
+  currentContent: string,
+  instruction: string,
+  templatePrompt = "",
+  sectionPrompt = "",
+) {
+  const base = sanitizeSectionContent(currentContent || demoGeneration(report, section).content);
   const directive = instruction.toLocaleLowerCase("tr");
-  if (directive.includes("resm") || directive.includes("formal")) {
-    return cleaned.replace(/\bbu bölüm\b/gi, isTurkish(report) ? "bu rapor bölümü" : "this report section");
+  const paragraphs = base.split(/\n{2,}/).filter(Boolean);
+  const promptHints = [templatePrompt, sectionPrompt].filter(Boolean).join(" ").toLocaleLowerCase("tr");
+
+  if (directive.includes("tabl")) {
+    return buildTableVersion(report, paragraphs);
   }
-  if (directive.includes("kanıt") || directive.includes("evidence")) {
-    return appendIfMissing(cleaned, isTurkish(report)
-      ? "Metin, mevcut resmî kaynaklar ve yüklenen belgeler temel alınarak güncellendi."
-      : "The text was updated using the available official sources and uploaded documents.");
+
+  let content = base;
+  if (directive.includes("kısa") || directive.includes("short")) {
+    content = shortenContent(paragraphs);
+  } else if (directive.includes("geniş") || directive.includes("expand") || directive.includes("evidence") || directive.includes("kanıt")) {
+    content = expandContent(report, section, content);
+  } else if (directive.includes("resm") || directive.includes("formal") || directive.includes("official")) {
+    content = makeMoreFormal(content, report);
   }
-  if (directive.includes("resmî") || directive.includes("official")) {
-    return appendIfMissing(cleaned, isTurkish(report)
-      ? "Metin yalnızca tanımlı resmî kaynaklar ve yüklenen belgeler temel alınarak hazırlandı."
-      : "The text was prepared using only the configured official sources and uploaded documents.");
+
+  if (directive.includes("resmî kaynak") || directive.includes("official source")) {
+    content = emphasizeOfficialSources(content, report);
   }
-  return cleaned;
+  if (promptHints.includes("table") && !directive.includes("tabl")) {
+    content = content;
+  }
+
+  return sanitizeSectionContent(content);
 }
 
-function cleanupSectionContent(content: string) {
+function analyzeUnsupportedClaims(report: Report, currentContent: string): AssistantEditResponse {
+  const findings = findUnsupportedClaims(currentContent, report);
+  return {
+    updatedSection: null,
+    assistantMessage: findings,
+    actionType: "show_unsupported",
+  };
+}
+
+function buildAssistantEditPrompt(
+  report: Report,
+  section: ReportSection,
+  instruction: string,
+  currentContent: string,
+  webSources: Source[],
+  templatePrompt = "",
+  sectionPrompt = "",
+) {
+  const sourceBlock = webSources.length
+    ? webSources.map((source, index) => `[WS${index + 1}] ${source.title}\n${source.content}`).join("\n\n")
+    : "No web research sources.";
+  return `You are editing a report section. Return only JSON with keys updatedContent and assistantMessage.
+Return only the final report section content.
+
+Do not include:
+- explanations
+- status messages
+- editing summaries
+- warnings to the user
+- phrases describing what you changed
+- phrases such as "the section was updated"
+- manual review notes
+
+The output will be stored directly inside the report document.
+
+The assistantMessage must be short and belong only in the chat panel.
+
+Report language: ${report.outputLanguage}
+Section title: ${section.title}
+Section description: ${section.description}
+Template prompt: ${templatePrompt || "None"}
+Section prompt: ${sectionPrompt || "None"}
+Current content:
+${currentContent}
+
+Instruction:
+${instruction}
+
+Report context:
+${contextFor(report, section, [...report.sources, ...webSources])}
+
+Web research sources:
+${sourceBlock}`;
+}
+
+function parseAssistantEditResponse(raw: string) {
+  const jsonText = extractJsonBlock(raw);
+  const parsed = JSON.parse(jsonText) as { updatedContent?: string | null; assistantMessage?: string };
+  return {
+    updatedContent: typeof parsed.updatedContent === "string" ? parsed.updatedContent : null,
+    assistantMessage: typeof parsed.assistantMessage === "string" ? parsed.assistantMessage.trim() : "",
+  };
+}
+
+function extractJsonBlock(raw: string) {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("{")) return trimmed;
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start >= 0 && end > start) return trimmed.slice(start, end + 1);
+  throw new Error("Assistant response was not valid JSON.");
+}
+
+function sanitizeSectionContent(content: string) {
   return content
     .split(/\n{2,}/)
     .map((paragraph) => paragraph
       .split(/(?<=[.!?])\s+/)
-      .filter((sentence) => !/(manual review|Needs manual review|desteksiz|inceleme gerekli|açık inceleme|unsupported|review item|uyarı|not yet supplied)/i.test(sentence))
+      .filter((sentence) => !isOperationSummary(sentence))
       .join(" ")
       .trim())
     .filter(Boolean)
-    .join("\n\n");
+    .join("\n\n")
+    .trim();
 }
 
-function appendIfMissing(content: string, sentence: string) {
-  if (content.includes(sentence)) return content;
-  return `${content}\n\n${sentence}`;
+function isOperationSummary(text: string) {
+  return /(bölüm yeniden yazıldı|içerik güncellendi|metin mevcut kaynaklara göre güncellendi|eksik bilgiler tamamlandı|bölüm daha resmî bir dille düzenlenmiştir|manuel inceleme gereklidir|manual review|required review|content updated|rewritten successfully|assistant response|başarıyla oluşturuldu)/i.test(text);
+}
+
+function shortenContent(paragraphs: string[]) {
+  const selected = paragraphs.slice(0, Math.max(1, Math.min(2, paragraphs.length)));
+  return selected.join("\n\n");
+}
+
+function expandContent(report: Report, section: ReportSection, content: string) {
+  const extra = report.sources.length || report.documents.length
+    ? (isTurkish(report)
+      ? "Mevcut resmî kaynaklar ve yüklenen belgeler dikkate alınarak değerlendirme genişletildi."
+      : "The assessment has been expanded using the available official sources and uploaded documents.")
+    : (isTurkish(report)
+      ? "İlave resmî kaynak veya belge eklendiğinde bu bölüm daha da detaylandırılabilir."
+      : "This section can be expanded further when additional official sources or documents are available.");
+  return `${content}\n\n${extra}`;
+}
+
+function makeMoreFormal(content: string, report: Report) {
+  if (isTurkish(report)) {
+    return content
+      .replace(/\bbu bölüm\b/gi, "bu rapor bölümü")
+      .replace(/\bşimdi\b/gi, "halen")
+      .replace(/\biyi\b/gi, "uygun");
+  }
+  return content
+    .replace(/\bthis section\b/gi, "this report section")
+    .replace(/\bnow\b/gi, "currently");
+}
+
+function emphasizeOfficialSources(content: string, report: Report) {
+  if (!report.sources.length && !report.documents.length) return content;
+  const note = isTurkish(report)
+    ? "Bu değerlendirme, tanımlı resmî kaynaklar ve yüklenen belgelerle desteklenmektedir."
+    : "This assessment is supported by the configured official sources and uploaded documents.";
+  return `${content}\n\n${note}`;
+}
+
+function buildTableVersion(report: Report, paragraphs: string[]) {
+  const rows = paragraphs.map((paragraph, index) => {
+    const title = isTurkish(report) ? `Başlık ${index + 1}` : `Item ${index + 1}`;
+    return `${title} | ${paragraph.replace(/\|/g, "/")}`;
+  });
+  const header = isTurkish(report) ? "Başlık | İçerik" : "Title | Content";
+  return [header, ...rows].join("\n");
+}
+
+function findUnsupportedClaims(currentContent: string, report: Report) {
+  const lines = currentContent
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const suspicious = lines.filter((line) => isOperationSummary(line) || /\[Needs manual review\]/i.test(line));
+  if (!suspicious.length) {
+    return isTurkish(report)
+      ? "Desteksiz iddia bulunamadı."
+      : "No unsupported claims detected.";
+  }
+  return isTurkish(report)
+    ? `Desteksiz veya açıklama amaçlı ifadeler:\n${suspicious.map((line) => `- ${line}`).join("\n")}`
+    : `Unsupported or explanatory statements:\n${suspicious.map((line) => `- ${line}`).join("\n")}`;
+}
+
+function assistantRewriteMessage(report: Report) {
+  return isTurkish(report)
+    ? "Bölüm yeniden yazıldı."
+    : "The section was rewritten.";
 }
 
 function sectionName(report: Report, section: ReportSection) {

@@ -1,39 +1,54 @@
 import { NextResponse } from "next/server";
 import { apiErrorResponse } from "@/lib/api-error";
-import { chatAboutSection } from "@/lib/ai-service";
-import { addChatMessage, addSource, getReport, saveReport } from "@/lib/store";
+import { editSectionWithAssistant } from "@/lib/ai-service";
+import { addChatMessage, getReport, getReportType, saveReport } from "@/lib/store";
 import { chatSchema } from "@/lib/validation";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params;
+    const body = await request.json();
+    const input = chatSchema.parse(body);
     const report = await getReport(id);
     if (!report) return NextResponse.json({ error: "Report not found." }, { status: 404 });
-    const input = chatSchema.parse(await request.json());
     const section = report.sections.find((item) => item.id === input.sectionId);
     if (!section) return NextResponse.json({ error: "Section not found." }, { status: 404 });
+    let templatePrompt = "";
+    let sectionPrompt = "";
+    if (report.reportTypeId) {
+      const template = await getReportType(report.reportTypeId);
+      if (template) {
+        templatePrompt = template.defaultAiPrompt || "";
+        const matchingSection = template.sections.find((item) => item.title === section.title)
+          || template.sections.filter((item) => item.isEnabled)[report.sections.findIndex((item) => item.id === section.id)];
+        sectionPrompt = matchingSection?.aiPrompt || "";
+      }
+    }
+    const currentContent = typeof body.currentContent === "string" && body.currentContent.trim()
+      ? body.currentContent
+      : section.content;
     await addChatMessage(report.id, section.id, "user", input.message);
-    const result = await chatAboutSection(report, section, input.message, input.action);
-    const persistedSources = await Promise.all(result.discoveredSources.map((source) => addSource(report.id, source)));
-    const discoveredSources = persistedSources.filter((source): source is Exclude<typeof source, undefined> => Boolean(source));
-    const mergedSources = [...report.sources, ...discoveredSources.filter((source) => !report.sources.some((item) => item.url === source.url))];
-    let updatedSection = section;
-    if (input.action === "rewrite" && result.proposedContent) {
-      updatedSection = {
-        ...section,
-        content: result.proposedContent,
-        reviewStatus: "Needs review",
-      };
-      report.sections = report.sections.map((item) => item.id === section.id ? updatedSection : item);
-      report.sources = mergedSources;
+    const result = await editSectionWithAssistant(
+      report,
+      section,
+      input.message,
+      input.actionType,
+      currentContent,
+      templatePrompt,
+      sectionPrompt,
+    );
+    let updatedSection = result.updatedSection;
+    if (updatedSection) {
+      updatedSection = { ...updatedSection, content: updatedSection.content.trim() };
+      report.sections = report.sections.map((item) => item.id === section.id ? updatedSection! : item);
       report.status = "In Progress";
       await saveReport(report);
     }
-    await addChatMessage(report.id, section.id, "assistant", result.reply || JSON.stringify(result));
+    await addChatMessage(report.id, section.id, "assistant", result.assistantMessage);
     return NextResponse.json({
-      ...result,
-      discoveredSources,
-      section: input.action === "rewrite" ? updatedSection : undefined,
+      updatedSection,
+      assistantMessage: result.assistantMessage,
+      actionType: result.actionType,
     });
   } catch (error) {
     return apiErrorResponse(error, "Assistant request failed.", 400);

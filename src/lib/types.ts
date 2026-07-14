@@ -102,3 +102,11 @@ export interface ReportType {
   sections: ReportTypeSectionConfig[];
   sources: ReportTypeSource[];
 }
+
+export type AssistantActionType = "rewrite" | "show_unsupported";
+
+export interface AssistantEditResponse {
+  updatedSection: ReportSection | null;
+  assistantMessage: string;
+  actionType: AssistantActionType;
+}
