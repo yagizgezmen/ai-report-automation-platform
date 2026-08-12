@@ -1,12 +1,13 @@
 "use client";
 
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { useLanguage } from "@/components/language-provider";
 import { ReportType } from "@/lib/types";
-import { FileText, Globe2, GripVertical, Loader2, Plus, Save, Settings2, Sparkles, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { FileText, Globe2, GripVertical, Loader2, Plus, Save, Settings2, Sparkles, Trash2, Upload } from "lucide-react";
 
 type TemplateTab = "sections" | "sources" | "general" | "aiConfiguration";
+const IMPORTED_TEMPLATE_PREFIX = "imported-template-draft-";
 
 export default function ReportTemplatesPage() {
   const { t } = useLanguage();
@@ -16,6 +17,7 @@ export default function ReportTemplatesPage() {
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [newTemplateName, setNewTemplateName] = useState("");
+  const importFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setBusy("load");
@@ -34,6 +36,8 @@ export default function ReportTemplatesPage() {
     () => templates.find((template) => template.id === activeId),
     [templates, activeId],
   );
+
+  const activeTemplateIsDraft = Boolean(activeTemplate?.id.startsWith(IMPORTED_TEMPLATE_PREFIX));
 
   function buildTemplateName() {
     const candidate = newTemplateName.trim();
@@ -54,9 +58,9 @@ export default function ReportTemplatesPage() {
       reportTone: "Technical",
       documentFormat: "DOCX",
       sections: [
-        { title: t("starterSectionIntro"), description: t("starterSectionIntroDescription"), sortOrder: 0, aiPrompt: "", isRequired: true, isEnabled: true },
-        { title: t("starterSectionAnalysis"), description: t("starterSectionAnalysisDescription"), sortOrder: 1, aiPrompt: "", isRequired: true, isEnabled: true },
-        { title: t("starterSectionConclusion"), description: t("starterSectionConclusionDescription"), sortOrder: 2, aiPrompt: "", isRequired: true, isEnabled: true },
+        { title: t("starterSectionIntro"), description: t("starterSectionIntroDescription"), sortOrder: 0, requiredInputs: [], sourceRequired: false, aiPrompt: "", isRequired: true, isEnabled: true },
+        { title: t("starterSectionAnalysis"), description: t("starterSectionAnalysisDescription"), sortOrder: 1, requiredInputs: [], sourceRequired: false, aiPrompt: "", isRequired: true, isEnabled: true },
+        { title: t("starterSectionConclusion"), description: t("starterSectionConclusionDescription"), sortOrder: 2, requiredInputs: [], sourceRequired: false, aiPrompt: "", isRequired: true, isEnabled: true },
       ],
       sources: [],
     };
@@ -99,20 +103,67 @@ export default function ReportTemplatesPage() {
     setBusy("");
   }
 
+  async function importTemplate(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setBusy("import");
+    setMessage("");
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await fetch("/api/report-types/import", {
+        method: "POST",
+        body: formData,
+      });
+      const body = await response.json();
+
+      if (!response.ok) {
+        setMessage(body.error || t("templateImportError"));
+        return;
+      }
+
+      const importedTemplate = normalizeTemplate({
+        ...(body as Omit<ReportType, "id">),
+        id: `${IMPORTED_TEMPLATE_PREFIX}${Date.now()}`,
+      });
+      setTemplates((items) => [...items.filter((item) => item.id !== importedTemplate.id), importedTemplate]);
+      setActiveId(importedTemplate.id);
+      setTab("sections");
+      setMessage(t("templateImported"));
+    } catch {
+      setMessage(t("templateImportError"));
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function saveTemplate() {
     if (!activeTemplate) return;
     setBusy("save");
     setMessage("");
-    const response = await fetch(`/api/report-types/${activeTemplate.id}`, {
-      method: "PATCH",
+    const isDraft = activeTemplate.id.startsWith(IMPORTED_TEMPLATE_PREFIX);
+    const response = await fetch(isDraft ? "/api/report-types" : `/api/report-types/${activeTemplate.id}`, {
+      method: isDraft ? "POST" : "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(activeTemplate),
+      body: JSON.stringify(isDraft ? {
+        ...activeTemplate,
+        sections: activeTemplate.sections.map(({ id, ...section }) => ({ ...section, id: id || undefined })),
+        sources: activeTemplate.sources.map(({ id, ...source }) => ({ ...source, id: id || undefined })),
+      } : activeTemplate),
     });
     const body = await response.json();
     if (!response.ok) {
       setMessage(body.error || t("templateSaveError"));
     } else {
-      setTemplates((items) => items.map((item) => item.id === body.id ? normalizeTemplate(body as ReportType) : item));
+      const normalizedTemplate = normalizeTemplate(body as ReportType);
+      setTemplates((items) => isDraft
+        ? [...items.filter((item) => item.id !== activeTemplate.id), normalizedTemplate]
+        : items.map((item) => item.id === body.id ? normalizedTemplate : item));
+      if (isDraft) setActiveId(normalizedTemplate.id);
       setMessage(t("templateSaved"));
     }
     setBusy("");
@@ -128,11 +179,27 @@ export default function ReportTemplatesPage() {
       requireCitations: template.requireCitations ?? true,
       reportTone: template.reportTone || "Technical",
       documentFormat: template.documentFormat || "DOCX",
+      sections: template.sections.map((section, index) => ({
+        ...section,
+        sortOrder: section.sortOrder ?? index,
+        requiredInputs: section.requiredInputs || [],
+        sourceRequired: section.sourceRequired ?? false,
+        aiPrompt: section.aiPrompt || "",
+        isRequired: section.isRequired ?? true,
+        isEnabled: section.isEnabled ?? true,
+      })),
     };
   }
 
   async function deleteTemplate() {
     if (!activeTemplate) return;
+    if (activeTemplate.id.startsWith(IMPORTED_TEMPLATE_PREFIX)) {
+      const nextTemplates = templates.filter((item) => item.id !== activeTemplate.id);
+      setTemplates(nextTemplates);
+      setActiveId(nextTemplates[0]?.id || "");
+      setMessage("");
+      return;
+    }
     setBusy("delete");
     setMessage("");
     const response = await fetch(`/api/report-types/${activeTemplate.id}`, { method: "DELETE" });
@@ -182,6 +249,11 @@ export default function ReportTemplatesPage() {
                 {busy === "create" ? <Loader2 size={15} className="animate-spin" /> : <Plus size={16} />}
               </button>
             </div>
+            <input ref={importFileRef} type="file" accept=".pdf,.docx,.txt" onChange={importTemplate} hidden />
+            <button onClick={() => importFileRef.current?.click()} disabled={busy === "import"} className="mt-3 btn-secondary flex w-full items-center justify-center gap-2 text-sm">
+              {busy === "import" ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
+              {busy === "import" ? t("importingTemplate") : t("importTemplateFromDocument")}
+            </button>
             <p className="mt-2 text-xs text-slate-500">{t("templateCreateHint")}</p>
             <div className="mt-5 space-y-2">
               {busy === "load" && <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" /> {t("loadingTemplates")}</div>}
@@ -211,8 +283,12 @@ export default function ReportTemplatesPage() {
               <>
                 <div className="mb-5 flex items-start justify-between gap-4">
                   <div>
-                    <h2 className="text-xl font-bold">{activeTemplate.name}</h2>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-xl font-bold">{activeTemplate.name}</h2>
+                      {activeTemplateIsDraft ? <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700">{t("importedTemplateDraft")}</span> : null}
+                    </div>
                     <p className="mt-1 text-sm text-slate-500">{activeTemplate.description || t("templateDescriptionPlaceholder")}</p>
+                    {activeTemplateIsDraft ? <p className="mt-2 text-xs font-medium text-amber-700">{t("importedTemplateNeedsSave")}</p> : null}
                   </div>
                   <div className="flex items-center gap-2">
                     <button onClick={deleteTemplate} disabled={busy === "delete"} className="btn-secondary flex items-center gap-2 text-xs text-red-600">
@@ -343,7 +419,7 @@ export default function ReportTemplatesPage() {
                       <button
                         onClick={() => updateActiveTemplate((template) => ({
                           ...template,
-                          sections: [...template.sections, { id: "", title: "", description: "", sortOrder: template.sections.length, aiPrompt: "", isRequired: true, isEnabled: true }],
+                          sections: [...template.sections, { id: "", title: "", description: "", sortOrder: template.sections.length, requiredInputs: [], sourceRequired: false, aiPrompt: "", isRequired: true, isEnabled: true }],
                         }))}
                         className="btn-secondary flex items-center gap-2 text-xs"
                       >

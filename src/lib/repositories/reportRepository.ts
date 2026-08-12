@@ -10,6 +10,8 @@ import {
 } from "@/lib/repositories/sectionRepository";
 import { toDomainSource } from "@/lib/repositories/sourceRepository";
 import { toDomainDocument } from "@/lib/repositories/documentRepository";
+import { ensureWorkspaceUser } from "@/lib/repositories/userRepository";
+import { deriveReportStatus, syncReportStatus } from "@/lib/report-status";
 import { createTemplateSections } from "@/lib/templates";
 import { CreateReportInput, Report, ReportStatus } from "@/lib/types";
 
@@ -36,7 +38,7 @@ export const reportInclude = {
 type ReportRecord = Prisma.ReportGetPayload<{ include: typeof reportInclude }>;
 
 function toDomainReport(record: ReportRecord): Report {
-  return {
+  return syncReportStatus({
     id: record.id,
     reportTypeId: record.reportTypeId || undefined,
     reportType: record.reportType,
@@ -53,26 +55,30 @@ function toDomainReport(record: ReportRecord): Report {
     documents: record.documents.map(toDomainDocument),
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
-  };
+  });
 }
 
-export async function findAllReports(): Promise<Report[]> {
+export async function findAllReports(username: string): Promise<Report[]> {
+  const user = await ensureWorkspaceUser(username);
   const records = await getPrismaClient().report.findMany({
+    where: { userId: user.id },
     include: reportInclude,
     orderBy: { updatedAt: "desc" },
   });
   return records.map(toDomainReport);
 }
 
-export async function findReportById(id: string): Promise<Report | undefined> {
-  const record = await getPrismaClient().report.findUnique({
-    where: { id },
+export async function findReportById(id: string, username: string): Promise<Report | undefined> {
+  const user = await ensureWorkspaceUser(username);
+  const record = await getPrismaClient().report.findFirst({
+    where: { id, userId: user.id },
     include: reportInclude,
   });
   return record ? toDomainReport(record) : undefined;
 }
 
-export async function createPersistedReport(input: CreateReportInput): Promise<Report> {
+export async function createPersistedReport(input: CreateReportInput, username: string): Promise<Report> {
+  const user = await ensureWorkspaceUser(username);
   const reportType = input.reportTypeId
     ? await getPrismaClient().reportType.findUnique({
         where: { id: input.reportTypeId },
@@ -86,6 +92,10 @@ export async function createPersistedReport(input: CreateReportInput): Promise<R
     title: section.title,
     description: section.description,
     sortOrder: section.sortOrder,
+    requiredInputs: Array.isArray(section.requiredInputs)
+      ? section.requiredInputs.filter((item): item is string => typeof item === "string")
+      : [],
+    sourceRequired: section.sourceRequired,
     aiPrompt: section.aiPrompt || "",
     isRequired: section.isRequired,
     isEnabled: section.isEnabled,
@@ -93,6 +103,7 @@ export async function createPersistedReport(input: CreateReportInput): Promise<R
 
   const record = await getPrismaClient().report.create({
     data: {
+      userId: user.id,
       reportTypeId: reportType?.id || null,
       reportType: reportTypeName,
       projectName: input.projectName,
@@ -113,26 +124,30 @@ export async function createPersistedReport(input: CreateReportInput): Promise<R
   return toDomainReport(record);
 }
 
-export async function savePersistedReport(report: Report): Promise<Report> {
+export async function savePersistedReport(report: Report, username: string): Promise<Report> {
   const db = getPrismaClient();
+  const user = await ensureWorkspaceUser(username);
+  const normalizedReport = syncReportStatus(report);
   await db.$transaction(async (tx) => {
+    const ownedReport = await tx.report.findFirst({ where: { id: normalizedReport.id, userId: user.id }, select: { id: true } });
+    if (!ownedReport) throw new Error("Report not found.");
     await tx.report.update({
-      where: { id: report.id },
+      where: { id: normalizedReport.id },
       data: {
-        projectName: report.projectName,
-        reportTypeId: report.reportTypeId || null,
-        parcelInfo: report.parcelInfo || null,
-        manualNotes: report.manualNotes || null,
-        status: reportStatusToDb[report.status],
-        outputLanguage: report.outputLanguage,
-        allowWebResearch: report.allowWebResearch,
-        desiredLength: report.desiredLength,
+        projectName: normalizedReport.projectName,
+        reportTypeId: normalizedReport.reportTypeId || null,
+        parcelInfo: normalizedReport.parcelInfo || null,
+        manualNotes: normalizedReport.manualNotes || null,
+        status: reportStatusToDb[deriveReportStatus(normalizedReport.sections)],
+        outputLanguage: normalizedReport.outputLanguage,
+        allowWebResearch: normalizedReport.allowWebResearch,
+        desiredLength: normalizedReport.desiredLength,
       },
     });
-    await updateSections(tx, report.sections);
+    await updateSections(tx, normalizedReport.sections);
   });
 
-  const saved = await findReportById(report.id);
+  const saved = await findReportById(normalizedReport.id, username);
   if (!saved) throw new Error("Report could not be reloaded after saving.");
   return saved;
 }

@@ -8,6 +8,7 @@ const section: ReportSection = {
   description: "Administrative context",
   requiredInputs: [],
   sourceRequired: true,
+  isRequired: true,
   content: "",
   reviewStatus: "Not started",
   confidence: "Low",

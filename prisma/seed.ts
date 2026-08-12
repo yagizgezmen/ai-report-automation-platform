@@ -64,6 +64,8 @@ async function main() {
       title: section.title,
       description: section.description,
       sortOrder: index,
+      requiredInputs: [],
+      sourceRequired: false,
       aiPrompt: "",
       isRequired: true,
       isEnabled: true,
@@ -108,6 +110,7 @@ async function main() {
             description: section.description,
             requiredInputs: section.requiredInputs,
             sourceRequired: section.sourceRequired,
+            isRequired: section.isRequired,
             content: position === 0
               ? "Bu rapor, Kadıköy Fenerbahçe'deki proje alanının planlama bağlamını ve gelişim koşullarını değerlendirmektedir [S1]. Mevcut resmî kaynaklar ön değerlendirme için temel sağlamakla birlikte, parsel bazlı güncel plan notlarının nihai rapor öncesinde doğrulanması gerekmektedir [S2]."
               : position === 1

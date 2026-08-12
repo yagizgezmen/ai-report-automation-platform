@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { DEFAULT_REPORT_TEMPLATES } from "@/lib/report-types";
+import { syncReportStatus } from "@/lib/report-status";
 import { createTemplateSections } from "@/lib/templates";
 import {
   CreateReportInput,
@@ -27,6 +28,8 @@ const demoReportTypes: ReportType[] = DEFAULT_REPORT_TEMPLATES.map((template, te
     title: section.title,
     description: section.description,
     sortOrder: sectionIndex,
+    requiredInputs: [],
+    sourceRequired: false,
     aiPrompt: "",
     isRequired: true,
     isEnabled: true,
@@ -80,20 +83,28 @@ const sampleReport: Report = {
   updatedAt: now.toISOString(),
 };
 
+const DEMO_REPORT_OWNER = "admin";
+
 const globalStore = globalThis as unknown as {
   reportStore?: Map<string, Report>;
   reportTypeStore?: Map<string, ReportType>;
+  reportOwnerStore?: Map<string, string>;
 };
 const reports = globalStore.reportStore ?? new Map([[sampleReport.id, sampleReport]]);
 const reportTypes = globalStore.reportTypeStore ?? new Map(demoReportTypes.map((item) => [item.id, item]));
+const reportOwners = globalStore.reportOwnerStore ?? new Map([[sampleReport.id, DEMO_REPORT_OWNER]]);
 globalStore.reportStore = reports;
 globalStore.reportTypeStore = reportTypes;
+globalStore.reportOwnerStore = reportOwners;
 
-export function listDemoReports(): Report[] {
-  return [...reports.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+export function listDemoReports(username: string): Report[] {
+  return [...reports.entries()]
+    .filter(([id]) => reportOwners.get(id) === username)
+    .map(([, report]) => syncReportStatus(report))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-export function createDemoReport(input: CreateReportInput): Report {
+export function createDemoReport(input: CreateReportInput, username: string): Report {
   const template = input.reportTypeId ? reportTypes.get(input.reportTypeId) : undefined;
   const id = randomUUID();
   const timestamp = new Date().toISOString();
@@ -115,40 +126,47 @@ export function createDemoReport(input: CreateReportInput): Report {
     createdAt: timestamp,
     updatedAt: timestamp,
   };
-  reports.set(id, report);
-  return report;
+  const normalizedReport = syncReportStatus(report);
+  reports.set(id, normalizedReport);
+  reportOwners.set(id, username);
+  return normalizedReport;
 }
 
-export function getDemoReport(id: string): Report | undefined {
-  return reports.get(id);
+export function getDemoReport(id: string, username: string): Report | undefined {
+  const report = reportOwners.get(id) === username ? reports.get(id) : undefined;
+  return report ? syncReportStatus(report) : undefined;
 }
 
-export function saveDemoReport(report: Report): Report {
-  const saved = { ...report, updatedAt: new Date().toISOString() };
+export function saveDemoReport(report: Report, username: string): Report {
+  if (reportOwners.get(report.id) !== username) {
+    throw new Error("Report not found.");
+  }
+  const saved = syncReportStatus({ ...report, updatedAt: new Date().toISOString() });
   reports.set(report.id, saved);
   return saved;
 }
 
-export function addDemoSource(reportId: string, source: Source): Source | undefined {
+export function addDemoSource(reportId: string, source: Source, username: string): Source | undefined {
   const report = reports.get(reportId);
   if (!report) return;
   const existingIndex = report.sources.findIndex((item) => item.url === source.url);
   if (existingIndex >= 0) report.sources[existingIndex] = source;
   else report.sources.push(source);
   report.status = "In Progress";
-  saveDemoReport(report);
+  saveDemoReport(report, username);
   return source;
 }
 
 export function addDemoDocument(
   reportId: string,
   document: UploadedDocument,
+  username: string,
 ): UploadedDocument | undefined {
   const report = reports.get(reportId);
   if (!report) return;
   report.documents.push(document);
   report.status = "In Progress";
-  saveDemoReport(report);
+  saveDemoReport(report, username);
   return document;
 }
 
@@ -195,6 +213,8 @@ export function saveDemoReportType(template: ReportType): ReportType {
         id: section.id || randomUUID(),
         sortOrder: index,
         aiPrompt: section.aiPrompt || "",
+        requiredInputs: section.requiredInputs || [],
+        sourceRequired: section.sourceRequired ?? false,
         isRequired: section.isRequired ?? true,
         isEnabled: section.isEnabled ?? true,
       })),

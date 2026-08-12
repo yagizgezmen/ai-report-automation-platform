@@ -30,6 +30,7 @@ export interface ReportSection {
   description: string;
   requiredInputs: string[];
   sourceRequired: boolean;
+  isRequired: boolean;
   content: string;
   reviewStatus: ReviewStatus;
   confidence: Confidence;
@@ -76,6 +77,8 @@ export interface ReportTypeSectionConfig {
   title: string;
   description: string;
   sortOrder: number;
+  requiredInputs: string[];
+  sourceRequired: boolean;
   aiPrompt: string;
   isRequired: boolean;
   isEnabled: boolean;
@@ -101,6 +104,17 @@ export interface ReportType {
   documentFormat: string;
   sections: ReportTypeSectionConfig[];
   sources: ReportTypeSource[];
+}
+
+export interface WorkspaceProfile {
+  id: string;
+  fullName: string;
+  title: string;
+  email: string;
+  phone: string;
+  username: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type AssistantActionType = "rewrite" | "show_unsupported";

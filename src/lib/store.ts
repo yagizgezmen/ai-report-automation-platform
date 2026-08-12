@@ -1,4 +1,4 @@
-import { databaseEnabled } from "@/lib/prisma";
+import { databaseEnabled, persistenceMode } from "@/lib/prisma";
 import {
   createPersistedReport,
   findAllReports,
@@ -31,42 +31,52 @@ async function demoStore() {
   return import("@/lib/demo-store");
 }
 
-export function isDemoMode() {
-  return !databaseEnabled;
+export async function listReports(username: string): Promise<Report[]> {
+  if (databaseEnabled) return findAllReports(username);
+  if (persistenceMode === "DEMO") return (await demoStore()).listDemoReports(username);
+  throw new Error("Persistence is not configured. Set DATABASE_URL for PostgreSQL mode or DEMO_MODE=true for demo mode.");
 }
 
-export async function listReports(): Promise<Report[]> {
-  if (databaseEnabled) return findAllReports();
-  return (await demoStore()).listDemoReports();
+export async function createReport(input: CreateReportInput, username: string): Promise<Report> {
+  if (databaseEnabled) return createPersistedReport(input, username);
+  if (persistenceMode === "DEMO") return (await demoStore()).createDemoReport(input, username);
+  throw new Error("Persistence is not configured. Set DATABASE_URL for PostgreSQL mode or DEMO_MODE=true for demo mode.");
 }
 
-export async function createReport(input: CreateReportInput): Promise<Report> {
-  if (databaseEnabled) return createPersistedReport(input);
-  return (await demoStore()).createDemoReport(input);
-}
-
-export async function getReport(id: string): Promise<Report | undefined> {
+export async function getReport(id: string, username: string): Promise<Report | undefined> {
   return databaseEnabled
-    ? findReportById(id)
-    : (await demoStore()).getDemoReport(id);
+    ? findReportById(id, username)
+    : persistenceMode === "DEMO"
+      ? (await demoStore()).getDemoReport(id, username)
+      : Promise.reject(new Error("Persistence is not configured. Set DATABASE_URL for PostgreSQL mode or DEMO_MODE=true for demo mode."));
 }
 
-export async function saveReport(report: Report): Promise<Report> {
-  if (databaseEnabled) return savePersistedReport(report);
-  return (await demoStore()).saveDemoReport(report);
+export async function saveReport(report: Report, username: string): Promise<Report> {
+  if (databaseEnabled) return savePersistedReport(report, username);
+  if (persistenceMode === "DEMO") return (await demoStore()).saveDemoReport(report, username);
+  throw new Error("Persistence is not configured. Set DATABASE_URL for PostgreSQL mode or DEMO_MODE=true for demo mode.");
 }
 
-export async function addSource(reportId: string, source: Source): Promise<Source | undefined> {
+export async function addSource(reportId: string, source: Source, username?: string): Promise<Source | undefined> {
   if (databaseEnabled) return createSource(reportId, source);
-  return (await demoStore()).addDemoSource(reportId, source);
+  if (persistenceMode !== "DEMO") {
+    throw new Error("Persistence is not configured. Set DATABASE_URL for PostgreSQL mode or DEMO_MODE=true for demo mode.");
+  }
+  if (!username) throw new Error("Username is required in demo mode.");
+  return (await demoStore()).addDemoSource(reportId, source, username);
 }
 
 export async function addDocument(
   reportId: string,
   document: UploadedDocument,
+  username?: string,
 ): Promise<UploadedDocument | undefined> {
   if (databaseEnabled) return createDocument(reportId, document);
-  return (await demoStore()).addDemoDocument(reportId, document);
+  if (persistenceMode !== "DEMO") {
+    throw new Error("Persistence is not configured. Set DATABASE_URL for PostgreSQL mode or DEMO_MODE=true for demo mode.");
+  }
+  if (!username) throw new Error("Username is required in demo mode.");
+  return (await demoStore()).addDemoDocument(reportId, document, username);
 }
 
 export async function addChatMessage(
@@ -75,29 +85,40 @@ export async function addChatMessage(
   role: string,
   content: string,
 ) {
-  if (!databaseEnabled) return;
+  if (!databaseEnabled) {
+    if (persistenceMode === "DEMO") return;
+    throw new Error("Persistence is not configured. Set DATABASE_URL for PostgreSQL mode or DEMO_MODE=true for demo mode.");
+  }
   await createChatMessage({ reportId, sectionId, role, content });
 }
 
 export async function createGenerationJob(reportId: string, sectionId: string) {
-  if (!databaseEnabled) return `demo-${reportId}-${sectionId}-${Date.now()}`;
+  if (!databaseEnabled) {
+    if (persistenceMode === "DEMO") return `demo-${reportId}-${sectionId}-${Date.now()}`;
+    throw new Error("Persistence is not configured. Set DATABASE_URL for PostgreSQL mode or DEMO_MODE=true for demo mode.");
+  }
   const job = await createRunningGenerationJob(reportId, sectionId);
   return job.id;
 }
 
 export async function completeGenerationJob(jobId: string, error?: string) {
-  if (!databaseEnabled) return;
+  if (!databaseEnabled) {
+    if (persistenceMode === "DEMO") return;
+    throw new Error("Persistence is not configured. Set DATABASE_URL for PostgreSQL mode or DEMO_MODE=true for demo mode.");
+  }
   await finishGenerationJob(jobId, error);
 }
 
 export async function listReportTypes(): Promise<ReportType[]> {
   if (databaseEnabled) return findAllReportTypes();
-  return (await demoStore()).listDemoReportTypes();
+  if (persistenceMode === "DEMO") return (await demoStore()).listDemoReportTypes();
+  throw new Error("Persistence is not configured. Set DATABASE_URL for PostgreSQL mode or DEMO_MODE=true for demo mode.");
 }
 
 export async function getReportType(id: string): Promise<ReportType | undefined> {
   if (databaseEnabled) return findReportTypeById(id);
-  return (await demoStore()).getDemoReportType(id);
+  if (persistenceMode === "DEMO") return (await demoStore()).getDemoReportType(id);
+  throw new Error("Persistence is not configured. Set DATABASE_URL for PostgreSQL mode or DEMO_MODE=true for demo mode.");
 }
 
 export async function addReportType(
@@ -119,6 +140,9 @@ export async function addReportType(
       sources,
     });
   }
+  if (persistenceMode !== "DEMO") {
+    throw new Error("Persistence is not configured. Set DATABASE_URL for PostgreSQL mode or DEMO_MODE=true for demo mode.");
+  }
   const created = (await demoStore()).createDemoReportType(name, description, configuration);
   if (!sections.length && !sources.length) return created;
   return (await demoStore()).saveDemoReportType({ ...created, sections, sources });
@@ -126,10 +150,16 @@ export async function addReportType(
 
 export async function updateReportType(template: ReportType): Promise<ReportType> {
   if (databaseEnabled) return saveReportType(template);
-  return (await demoStore()).saveDemoReportType(template);
+  if (persistenceMode === "DEMO") return (await demoStore()).saveDemoReportType(template);
+  throw new Error("Persistence is not configured. Set DATABASE_URL for PostgreSQL mode or DEMO_MODE=true for demo mode.");
 }
 
 export async function removeReportType(id: string) {
   if (databaseEnabled) return deleteReportType(id);
-  return (await demoStore()).deleteDemoReportType(id);
+  if (persistenceMode === "DEMO") return (await demoStore()).deleteDemoReportType(id);
+  throw new Error("Persistence is not configured. Set DATABASE_URL for PostgreSQL mode or DEMO_MODE=true for demo mode.");
+}
+
+export function isDemoMode() {
+  return persistenceMode === "DEMO";
 }

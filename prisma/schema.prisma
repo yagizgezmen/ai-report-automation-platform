@@ -143,6 +143,7 @@ model ReportSection {
   description       String       @db.Text
   requiredInputs    Json
   sourceRequired    Boolean      @default(false)
+  isRequired        Boolean      @default(true)
   content           String       @default("") @db.Text
   reviewStatus      ReviewStatus @default(NOT_STARTED)
   confidence        String       @default("Low")

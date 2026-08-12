@@ -19,6 +19,8 @@ const reportTypeSectionSchema = z.object({
   title: z.string().trim().min(1).max(160),
   description: z.string().trim().min(1).max(5000),
   sortOrder: z.number().int().min(0).optional(),
+  requiredInputs: z.array(z.string().trim().max(500)).max(50).optional().default([]),
+  sourceRequired: z.boolean().optional().default(false),
   aiPrompt: z.string().max(10000).optional().default(""),
   isRequired: z.boolean().optional().default(true),
   isEnabled: z.boolean().optional().default(true),
@@ -62,6 +64,29 @@ export const updateReportTypeSchema = z.object({
 
 export const sourceSchema = z.object({
   url: z.string().url(),
+});
+
+export const loginSchema = z.object({
+  username: z.string().trim().min(1).max(100),
+  password: z.string().min(1).max(200),
+  next: z.string().trim().optional(),
+});
+
+export const updateProfileSchema = z.object({
+  fullName: z.string().trim().min(2).max(160),
+  title: z.string().trim().min(2).max(160),
+  email: z.string().trim().email().max(160),
+  phone: z.string().trim().min(7).max(40),
+  username: z.string().trim().min(3).max(100),
+});
+
+export const updatePasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(200),
+  newPassword: z.string().min(8).max(200),
+  confirmPassword: z.string().min(8).max(200),
+}).refine((input) => input.newPassword === input.confirmPassword, {
+  message: "Password confirmation does not match.",
+  path: ["confirmPassword"],
 });
 
 export const generationSchema = z.object({

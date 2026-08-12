@@ -32,6 +32,8 @@ export async function POST(request: Request) {
           title: section.title,
           description: section.description,
           sortOrder: section.sortOrder ?? index,
+          requiredInputs: section.requiredInputs,
+          sourceRequired: section.sourceRequired,
           aiPrompt: section.aiPrompt || "",
           isRequired: section.isRequired ?? true,
           isEnabled: section.isEnabled ?? true,

@@ -8,6 +8,7 @@ const section: ReportSection = {
   description: "Summary",
   requiredInputs: [],
   sourceRequired: false,
+  isRequired: true,
   content: "",
   reviewStatus: "Not started",
   confidence: "Low",
