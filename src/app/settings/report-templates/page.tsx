@@ -152,7 +152,7 @@ export default function ReportTemplatesPage() {
       body: JSON.stringify(isDraft ? {
         ...activeTemplate,
         sections: activeTemplate.sections.map(({ id, ...section }) => ({ ...section, id: id || undefined })),
-        sources: activeTemplate.sources.map(({ id, ...source }) => ({ ...source, id: id || undefined })),
+        sources: activeTemplate.sources.map(({ id, ...source }) => ({ ...source, id: id || undefined, priority: source.priority || "MEDIUM" })),
       } : activeTemplate),
     });
     const body = await response.json();
@@ -187,6 +187,10 @@ export default function ReportTemplatesPage() {
         aiPrompt: section.aiPrompt || "",
         isRequired: section.isRequired ?? true,
         isEnabled: section.isEnabled ?? true,
+      })),
+      sources: template.sources.map((source) => ({
+        ...source,
+        priority: source.priority || "MEDIUM",
       })),
     };
   }
@@ -519,7 +523,7 @@ export default function ReportTemplatesPage() {
                       <button
                         onClick={() => updateActiveTemplate((template) => ({
                           ...template,
-                          sources: [...template.sources, { id: "", name: "", url: "", description: "" }],
+                          sources: [...template.sources, { id: "", name: "", url: "", description: "", priority: "MEDIUM" }],
                         }))}
                         className="btn-secondary flex items-center gap-2 text-xs"
                       >

@@ -1,37 +1,34 @@
 import { NextResponse } from "next/server";
 import { apiErrorResponse } from "@/lib/api-error";
 import { generateSection } from "@/lib/ai-service";
+import { resolveTemplateSectionConfig } from "@/lib/generation-runtime";
 import { addSource, completeGenerationJob, createGenerationJob, getReport, getReportType, saveReport } from "@/lib/store";
+import { requireSessionUsername } from "@/lib/session";
 import { generationSchema } from "@/lib/validation";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   let jobId: string | undefined;
   try {
+    const username = await requireSessionUsername();
     const { id } = await context.params;
-    const report = await getReport(id);
+    const report = await getReport(id, username);
     if (!report) return NextResponse.json({ error: "Report not found." }, { status: 404 });
     const input = generationSchema.parse(await request.json());
     const section = report.sections.find((item) => item.id === input.sectionId);
     if (!section) return NextResponse.json({ error: "Section not found." }, { status: 404 });
-    const sectionIndex = report.sections.findIndex((item) => item.id === section.id);
-    let templateDefaultPrompt = "";
-    let sectionAiPrompt = "";
+    let template;
     if (report.reportTypeId) {
-      const template = await getReportType(report.reportTypeId);
+      template = await getReportType(report.reportTypeId);
       if (template) {
-        templateDefaultPrompt = template.defaultAiPrompt || "";
-        const matchingSection = template.sections.find((templateSection) => templateSection.title === section.title)
-          || template.sections.filter((templateSection) => templateSection.isEnabled)[sectionIndex];
+        const matchingSection = resolveTemplateSectionConfig(template, report, section);
         if (matchingSection && !matchingSection.isEnabled) {
           return NextResponse.json({ error: "Section is disabled in the selected report template." }, { status: 400 });
         }
-        sectionAiPrompt = matchingSection?.aiPrompt || "";
       }
     }
-    const effectiveSectionPrompt = [templateDefaultPrompt.trim(), sectionAiPrompt.trim()].filter(Boolean).join("\n\n");
     jobId = await createGenerationJob(report.id, section.id);
-    const result = await generateSection(report, section, input.instruction, effectiveSectionPrompt);
-    const persistedSources = await Promise.all(result.discoveredSources.map((source) => addSource(report.id, source)));
+    const result = await generateSection(report, section, { instruction: input.instruction, template });
+    const persistedSources = await Promise.all(result.discoveredSources.map((source) => addSource(report.id, source, username)));
     const discoveredSources = persistedSources.filter((source): source is NonNullable<typeof source> => Boolean(source));
     const hasMissingData = result.missingWarnings.some((warning) =>
       /(add|missing|not yet|required|eksik|henüz|ekleyin|gerekli)/i.test(warning),
@@ -40,7 +37,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     Object.assign(section, result, { reviewStatus: needsReview ? "Needs review" : "Generated" });
     report.sources = [...report.sources, ...discoveredSources.filter((source) => !report.sources.some((item) => item.url === source.url))];
     report.status = needsReview ? "Needs Review" : "In Progress";
-    await saveReport(report);
+    await saveReport(report, username);
     await completeGenerationJob(jobId);
     return NextResponse.json({ section, reportStatus: report.status, discoveredSources });
   } catch (error) {

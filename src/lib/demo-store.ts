@@ -39,6 +39,7 @@ const demoReportTypes: ReportType[] = DEFAULT_REPORT_TEMPLATES.map((template, te
     name: source.name,
     url: source.url,
     description: source.description,
+    priority: source.priority || "MEDIUM",
   })),
 }));
 
@@ -228,6 +229,7 @@ export function saveDemoReportType(template: ReportType): ReportType {
     sources: template.sources.map((source) => ({
       ...source,
       id: source.id || randomUUID(),
+      priority: source.priority || "MEDIUM",
     })),
   };
   reportTypes.set(template.id, normalized);

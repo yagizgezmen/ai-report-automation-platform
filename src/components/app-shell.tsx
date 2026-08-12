@@ -1,13 +1,55 @@
 "use client";
 
-import { Bell, BookOpen, FileText, LayoutDashboard, Settings, Sparkles } from "lucide-react";
+import { Bell, BookOpen, FileText, LayoutDashboard, LogOut, Settings, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import { LanguageSelector, useLanguage } from "@/components/language-provider";
+import { WorkspaceProfile } from "@/lib/types";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { t } = useLanguage();
+  const [signingOut, setSigningOut] = useState(false);
+  const [profile, setProfile] = useState<WorkspaceProfile | null>(null);
+  const [signOutError, setSignOutError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/profile")
+      .then((response) => response.ok ? response.json() : null)
+      .then((body) => setProfile(body))
+      .catch(() => undefined);
+  }, []);
+
+  const initials = useMemo(() => {
+    const fullName = profile?.fullName?.trim();
+    if (!fullName) return "PR";
+    return fullName.split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() || "").join("");
+  }, [profile]);
+
+  async function signOut() {
+    setSigningOut(true);
+    setSignOutError("");
+    try {
+      const response = await fetch("/api/auth/logout", {
+        method: "POST",
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || t("signOutError"));
+      }
+
+      window.location.assign("/login");
+      return;
+    } catch (error) {
+      setSignOutError(error instanceof Error ? error.message : t("signOutError"));
+    } finally {
+      setSigningOut(false);
+    }
+  }
+
   return (
     <div className="min-h-screen">
       <aside className="fixed inset-y-0 left-0 z-30 w-[230px] bg-[#172a4d] text-white">
@@ -25,26 +67,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Nav href="/settings/report-templates" active={pathname.startsWith("/settings/report-templates") || pathname.startsWith("/settings/report-sources")} icon={<Settings size={17} />} label={t("templateSettings")} />
         </nav>
         <div className="absolute bottom-0 w-full border-t border-white/10 p-4">
-          <div className="mb-4 flex items-center gap-3 rounded-lg bg-white/5 p-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-400 text-xs font-bold">AY</div>
+          <Link href="/settings/profile" className="mb-4 flex items-center gap-3 rounded-lg bg-white/5 p-3 transition hover:bg-white/10">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-400 text-xs font-bold">{initials}</div>
             <div className="min-w-0">
-              <div className="truncate text-xs font-bold">Ayşe Yılmaz</div>
-              <div className="truncate text-[10px] text-blue-200">{t("seniorConsultant")}</div>
+              <div className="truncate text-xs font-bold">{profile?.fullName || "Workspace User"}</div>
+              <div className="truncate text-[10px] text-blue-200">{profile?.title || t("seniorConsultant")}</div>
             </div>
+          </Link>
+          <div className="space-y-2">
+            <Link href="/settings/report-templates" className="flex items-center gap-3 text-xs text-blue-100"><Settings size={16} /> {t("workspaceSettings")}</Link>
           </div>
-          <Link href="/settings/report-templates" className="flex items-center gap-3 text-xs text-blue-100"><Settings size={16} /> {t("workspaceSettings")}</Link>
         </div>
       </aside>
       <div className="ml-[230px]">
         <header className="sticky top-0 z-20 flex h-16 items-center justify-end border-b border-[#e6e9ef] bg-white px-7">
           <div className="flex items-center gap-5">
             <LanguageSelector />
+            <button onClick={signOut} className="flex items-center gap-2 text-xs font-semibold text-slate-500" disabled={signingOut}>
+              <LogOut size={16} /> {signingOut ? t("signingOut") : t("signOut")}
+            </button>
             <button aria-label={t("notifications")} className="text-slate-500"><Bell size={19} /></button>
             <div className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-700">
               {t("aiOperational")}
             </div>
           </div>
         </header>
+        {signOutError ? <div className="border-b border-rose-200 bg-rose-50 px-7 py-3 text-sm text-rose-700">{signOutError}</div> : null}
         {children}
       </div>
     </div>

@@ -12,9 +12,7 @@ function removeIfExists(targetPath) {
 }
 
 function prepareWindowsBuildDirectory() {
-  const targetDir = path.join(os.tmpdir(), "arqive-ai-next-build");
-  removeIfExists(targetDir);
-  fs.mkdirSync(targetDir, { recursive: true });
+  const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "arqive-ai-next-build-"));
 
   removeIfExists(buildDir);
   fs.symlinkSync(targetDir, buildDir, "junction");
@@ -26,6 +24,7 @@ const env = { ...process.env };
 if (process.platform === "win32") {
   prepareWindowsBuildDirectory();
   env.NODE_PATH = path.join(projectRoot, "node_modules");
+  env.NEXT_BUILD_DIST_DIR = "build";
 }
 
 const nextBin = path.join(projectRoot, "node_modules", "next", "dist", "bin", "next");

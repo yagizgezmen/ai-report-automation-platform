@@ -11,9 +11,9 @@ export const DEFAULT_REPORT_TEMPLATES = [
       { title: "Sonuç", description: "Bulguların değerlendirilmesi ve planlama açısından genel sonuç bölümü." },
     ],
     sources: [
-      { name: "Mersin Valiliği", url: "https://www.mersin.gov.tr", description: "İl düzeyindeki resmî duyurular ve yönetim bilgileri." },
-      { name: "TÜİK", url: "https://www.tuik.gov.tr", description: "Nüfus, demografi ve istatistik kaynakları." },
-      { name: "Resmî Gazete", url: "https://www.resmigazete.gov.tr", description: "Mevzuat ve yayımlanmış idarî kararlar." },
+      { name: "Mersin Valiliği", url: "https://www.mersin.gov.tr", description: "İl düzeyindeki resmî duyurular ve yönetim bilgileri.", priority: "MEDIUM" },
+      { name: "TÜİK", url: "https://www.tuik.gov.tr", description: "Nüfus, demografi ve istatistik kaynakları.", priority: "MEDIUM" },
+      { name: "Resmî Gazete", url: "https://www.resmigazete.gov.tr", description: "Mevzuat ve yayımlanmış idarî kararlar.", priority: "MEDIUM" },
     ],
   },
   {
@@ -28,8 +28,8 @@ export const DEFAULT_REPORT_TEMPLATES = [
       { title: "Sonuç ve Öneriler", description: "Uygulanabilirlik sonucu ve önerilen aksiyonlar." },
     ],
     sources: [
-      { name: "TÜİK", url: "https://www.tuik.gov.tr", description: "Makro veri ve sektör göstergeleri." },
-      { name: "Sanayi ve Teknoloji Bakanlığı", url: "https://www.sanayi.gov.tr", description: "Sektörel politika ve yatırım bilgileri." },
+      { name: "TÜİK", url: "https://www.tuik.gov.tr", description: "Makro veri ve sektör göstergeleri.", priority: "MEDIUM" },
+      { name: "Sanayi ve Teknoloji Bakanlığı", url: "https://www.sanayi.gov.tr", description: "Sektörel politika ve yatırım bilgileri.", priority: "MEDIUM" },
     ],
   },
   {
@@ -44,8 +44,8 @@ export const DEFAULT_REPORT_TEMPLATES = [
       { title: "Sonuç", description: "Araştırmadan çıkan genel değerlendirme ve öneriler." },
     ],
     sources: [
-      { name: "TÜİK", url: "https://www.tuik.gov.tr", description: "İstatistiksel pazar ve nüfus verileri." },
-      { name: "Ticaret Bakanlığı", url: "https://www.trade.gov.tr", description: "Ticaret ve sektör raporu kaynakları." },
+      { name: "TÜİK", url: "https://www.tuik.gov.tr", description: "İstatistiksel pazar ve nüfus verileri.", priority: "MEDIUM" },
+      { name: "Ticaret Bakanlığı", url: "https://www.trade.gov.tr", description: "Ticaret ve sektör raporu kaynakları.", priority: "MEDIUM" },
     ],
   },
   {
@@ -60,8 +60,8 @@ export const DEFAULT_REPORT_TEMPLATES = [
       { title: "Sonuç ve Öneriler", description: "Teknik değerlendirme sonucu ve önerilen iyileştirmeler." },
     ],
     sources: [
-      { name: "Resmî Gazete", url: "https://www.resmigazete.gov.tr", description: "Güncel mevzuat ve düzenlemeler." },
-      { name: "Çevre, Şehircilik ve İklim Değişikliği Bakanlığı", url: "https://www.csb.gov.tr", description: "Teknik ve idarî standartlara dair kaynaklar." },
+      { name: "Resmî Gazete", url: "https://www.resmigazete.gov.tr", description: "Güncel mevzuat ve düzenlemeler.", priority: "MEDIUM" },
+      { name: "Çevre, Şehircilik ve İklim Değişikliği Bakanlığı", url: "https://www.csb.gov.tr", description: "Teknik ve idarî standartlara dair kaynaklar.", priority: "MEDIUM" },
     ],
   },
 ] as const;

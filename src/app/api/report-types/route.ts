@@ -43,6 +43,7 @@ export async function POST(request: Request) {
           name: source.name,
           url: source.url,
           description: source.description || "",
+          priority: source.priority || "MEDIUM",
         })),
       ),
       { status: 201 },

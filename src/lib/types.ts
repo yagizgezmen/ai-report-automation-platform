@@ -2,6 +2,7 @@ export type ReportStatus = "Draft" | "In Progress" | "Needs Review" | "Completed
 export type ReviewStatus = "Not started" | "Generated" | "Needs review" | "Approved";
 export type Confidence = "High" | "Medium" | "Low";
 export type SourceOrigin = "configured" | "manual" | "ai-discovered";
+export type SourcePriority = "HIGH" | "MEDIUM" | "LOW";
 
 export interface Source {
   id: string;
@@ -89,6 +90,7 @@ export interface ReportTypeSource {
   name: string;
   url: string;
   description?: string;
+  priority?: SourcePriority;
 }
 
 export interface ReportType {

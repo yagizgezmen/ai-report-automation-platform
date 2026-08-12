@@ -40,6 +40,7 @@ function toDomainReportType(record: ReportTypeRecord): ReportType {
       name: source.name,
       url: source.url,
       description: source.description || "",
+      priority: source.priority,
     })),
   };
 }
@@ -74,7 +75,7 @@ export async function ensureDefaultReportTypes() {
                 name: source.name,
                 url: source.url,
                 description: source.description,
-                priority: "MEDIUM",
+                priority: source.priority || "MEDIUM",
               })),
             },
           },
@@ -105,7 +106,7 @@ export async function ensureDefaultReportTypes() {
             name: source.name,
             url: source.url,
             description: source.description,
-            priority: "MEDIUM",
+            priority: source.priority || "MEDIUM",
           })),
         });
       }
@@ -185,7 +186,7 @@ export async function createFullReportType(template: Omit<ReportType, "id">) {
           name: source.name,
           url: source.url,
           description: source.description || null,
-          priority: "MEDIUM",
+          priority: source.priority || "MEDIUM",
         })),
       },
     },
@@ -272,7 +273,7 @@ export async function saveReportType(template: ReportType) {
             name: source.name,
             url: source.url,
             description: source.description || null,
-            priority: "MEDIUM",
+            priority: source.priority || "MEDIUM",
           },
         });
       } else {
@@ -282,7 +283,7 @@ export async function saveReportType(template: ReportType) {
             name: source.name,
             url: source.url,
             description: source.description || null,
-            priority: "MEDIUM",
+            priority: source.priority || "MEDIUM",
           },
         });
       }

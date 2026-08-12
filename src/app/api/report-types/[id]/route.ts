@@ -45,6 +45,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         name: source.name,
         url: source.url,
         description: source.description || "",
+        priority: source.priority || "MEDIUM",
       })),
     }));
   } catch (error) {

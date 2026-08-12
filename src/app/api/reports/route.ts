@@ -8,11 +8,13 @@ import {
   getReport,
   listReports,
 } from "@/lib/store";
+import { requireSessionUsername } from "@/lib/session";
 import { createReportSchema } from "@/lib/validation";
 
 export async function GET() {
   try {
-    return NextResponse.json(await listReports());
+    const username = await requireSessionUsername();
+    return NextResponse.json(await listReports(username));
   } catch (error) {
     return apiErrorResponse(error, "Could not load reports.");
   }
@@ -20,6 +22,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const username = await requireSessionUsername();
     const payload = await request.json();
     const input = createReportSchema.parse(payload);
     const reportType = input.reportTypeId ? await getReportType(input.reportTypeId) : undefined;
@@ -32,7 +35,7 @@ export async function POST(request: Request) {
         ? input.allowWebResearch
         : (reportType?.enableWebResearch ?? input.allowWebResearch),
     };
-    const report = await createReport(normalizedInput);
+    const report = await createReport(normalizedInput, username);
     const results = await Promise.allSettled(
       (reportType?.sources || []).map((source) => collectSource(source.url, {
         origin: "configured",
@@ -40,8 +43,8 @@ export async function POST(request: Request) {
       })),
     );
     const sources = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
-    await Promise.all(sources.map((source) => addSource(report.id, source)));
-    return NextResponse.json(await getReport(report.id), { status: 201 });
+    await Promise.all(sources.map((source) => addSource(report.id, source, username)));
+    return NextResponse.json(await getReport(report.id, username), { status: 201 });
   } catch (error) {
     return apiErrorResponse(error, "Could not create report.", 400);
   }

@@ -2,8 +2,8 @@
 
 import { AppShell } from "@/components/app-shell";
 import { StatusBadge } from "@/components/status-badge";
-import { Report } from "@/lib/types";
-import { ArrowRight, CheckCircle2, Clock3, FilePlus2, FileText, Search, Sparkles } from "lucide-react";
+import { Report, WorkspaceProfile } from "@/lib/types";
+import { ArrowRight, CheckCircle2, Clock3, FilePlus2, FileText, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useLanguage } from "@/components/language-provider";
@@ -12,14 +12,59 @@ import { localizeReportType } from "@/lib/localization";
 export default function Dashboard() {
   const { language, t } = useLanguage();
   const [reports, setReports] = useState<Report[]>([]);
+  const [profile, setProfile] = useState<WorkspaceProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
   useEffect(() => {
-    fetch("/api/reports").then((r) => r.json()).then(setReports).finally(() => setLoading(false));
+    fetch("/api/profile")
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload) => setProfile(payload))
+      .catch(() => undefined);
+
+    async function loadReports() {
+      try {
+        const response = await fetch("/api/reports");
+        const payload: unknown = await response.json();
+
+        if (!response.ok) {
+          const message = typeof payload === "object" && payload && "error" in payload && typeof payload.error === "string"
+            ? payload.error
+            : "Could not load reports.";
+          setLoadError(message);
+          setReports([]);
+          return;
+        }
+
+        if (!Array.isArray(payload)) {
+          setLoadError("Could not load reports.");
+          setReports([]);
+          return;
+        }
+
+        setLoadError(null);
+        setReports(payload as Report[]);
+      } catch {
+        setLoadError("Could not load reports.");
+        setReports([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadReports();
   }, []);
 
   const visible = reports.filter((report) => report.projectName.toLowerCase().includes(query.toLowerCase()));
+  const firstName = profile?.fullName.trim().split(/\s+/)[0];
+  const greeting = firstName ? `${t("greeting")}, ${firstName}` : t("greeting");
+  const reportCounts = {
+    all: reports.length,
+    inProgress: reports.filter((report) => report.status === "In Progress").length,
+    needsReview: reports.filter((report) => report.status === "Needs Review").length,
+    completed: reports.filter((report) => report.status === "Completed").length,
+  };
 
   return (
     <AppShell>
@@ -27,17 +72,17 @@ export default function Dashboard() {
         <div className="mb-8 flex items-end justify-between">
           <div>
             <p className="mb-1 text-xs font-bold uppercase tracking-[.14em] text-blue-600">{t("reportWorkspace")}</p>
-            <h1 className="text-3xl font-bold tracking-tight">{t("greeting")}</h1>
+            <h1 className="text-3xl font-bold tracking-tight">{greeting}</h1>
             <p className="mt-2 text-sm text-slate-500">{t("dashboardDescription")}</p>
           </div>
           <Link href="/reports/new" className="btn-primary flex items-center gap-2"><FilePlus2 size={17} /> {t("newReport")}</Link>
         </div>
 
         <div className="mb-7 grid grid-cols-4 gap-4">
-          <Metric icon={<FileText size={19} />} label={t("allReports")} value={reports.length || 4} color="blue" />
-          <Metric icon={<Clock3 size={19} />} label={t("inProgress")} value={reports.filter((r) => r.status === "In Progress").length || 2} color="amber" />
-          <Metric icon={<Sparkles size={19} />} label={t("needsReview")} value={reports.filter((r) => r.status === "Needs Review").length || 1} color="violet" />
-          <Metric icon={<CheckCircle2 size={19} />} label={t("completed")} value={reports.filter((r) => r.status === "Completed").length || 1} color="emerald" />
+          <Metric icon={<FileText size={19} />} label={t("allReports")} value={reportCounts.all} color="blue" />
+          <Metric icon={<Clock3 size={19} />} label={t("inProgress")} value={reportCounts.inProgress} color="amber" />
+          <Metric icon={<Sparkles size={19} />} label={t("needsReview")} value={reportCounts.needsReview} color="violet" />
+          <Metric icon={<CheckCircle2 size={19} />} label={t("completed")} value={reportCounts.completed} color="emerald" />
         </div>
 
         <section className="card overflow-hidden">
@@ -46,13 +91,14 @@ export default function Dashboard() {
               <h2 className="font-bold">{t("recentReports")}</h2>
               <p className="mt-1 text-xs text-slate-500">{t("recentReportsDescription")}</p>
             </div>
-            <div className="relative w-64">
-              <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} className="field py-2 pl-9 text-sm" placeholder={t("searchReports")} />
+            <div className="w-64">
+              <input value={query} onChange={(e) => setQuery(e.target.value)} className="field py-2 text-sm" placeholder={t("searchReports")} />
             </div>
           </div>
           {loading ? (
             <div className="p-12 text-center text-sm text-slate-500">{t("loadingReports")}</div>
+          ) : loadError ? (
+            <div className="p-12 text-center text-sm text-rose-600">{loadError}</div>
           ) : (
             <div className="divide-y divide-slate-100">
               {visible.map((report) => {

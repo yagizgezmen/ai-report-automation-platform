@@ -1,6 +1,10 @@
-import OpenAI from "openai";
 import { chunkText, rankChunks } from "@/lib/chunking";
-import { AssistantActionType, AssistantEditResponse, Report, ReportSection, Source } from "@/lib/types";
+import { toUserFacingAIError } from "@/lib/ai/errors";
+import { extractStructuredStringField, parseJsonText } from "@/lib/ai/json";
+import { getAIProvider } from "@/lib/ai/provider-factory";
+import { AIProviderError } from "@/lib/ai/types";
+import { filterValidSourceIds, GenerationRuntimeConfig, resolveGenerationRuntimeConfig, resolveTemplateSectionConfig, sortSourcesForGeneration, buildCitationInstruction, buildToneInstruction } from "@/lib/generation-runtime";
+import { AssistantActionType, AssistantEditResponse, Report, ReportSection, ReportType, Source } from "@/lib/types";
 import { researchWeb } from "@/lib/services/webResearchService";
 
 // ── Token budget utilities ────────────────────────────────────────────────────
@@ -115,24 +119,26 @@ function buildSectionGenerationContext(
   report: Report,
   section: ReportSection,
   allSources: Source[],
+  runtimeConfig: GenerationRuntimeConfig,
+  instruction = "",
   sourceBudget = BUDGET.sources,
   documentBudget = BUDGET.documents,
 ): string {
+  const language = runtimeConfig.language;
   const metadata = `PROJECT: ${report.projectName}
 TYPE: ${report.reportType}
 LOCATION: ${report.location}
 PARCEL: ${report.parcelInfo || "Not specified"}
 NOTES: ${report.manualNotes || "None"}
-LANGUAGE: ${report.outputLanguage}
-WEB RESEARCH: ${report.allowWebResearch ? "enabled" : "disabled"}`;
+LANGUAGE: ${language}
+WEB RESEARCH: ${runtimeConfig.allowWebResearch ? "enabled" : "disabled"}`;
 
-  const query = `${section.title} ${section.description}`;
+  const query = `${section.title} ${section.description} ${instruction}`.trim();
 
   // Rank and chunk sources
   const sourceChunks: string[] = [];
   let sourceTokensUsed = 0;
-  const rankedSources = [...allSources]
-    .sort((a, b) => Number(b.isOfficial) - Number(a.isOfficial));
+  const rankedSources = sortSourcesForGeneration(allSources, query, runtimeConfig);
 
   for (const source of rankedSources) {
     const chunks = chunkText(source.content, 800, 100);
@@ -194,50 +200,111 @@ export function reportLanguageInstruction(language: string) {
   return `Write the entire output only in the report language: ${language}. Do not switch to English unless the report language is English. Translate section names, report type names, headings, and all text into the report language.`;
 }
 
-function createOpenAIClient() {
-  const config: ConstructorParameters<typeof OpenAI>[0] = {
-    apiKey: process.env.OPENAI_API_KEY,
-  };
-  if (process.env.OPENAI_BASE_URL) {
-    config.baseURL = process.env.OPENAI_BASE_URL;
+const GENERATION_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    content: { type: "string" },
+    confidence: { type: "string", enum: ["High", "Medium", "Low"] },
+    sourceIds: { type: "array", items: { type: "string" } },
+    unsupportedClaims: { type: "array", items: { type: "string" } },
+    missingWarnings: { type: "array", items: { type: "string" } },
+  },
+  required: ["content", "confidence", "sourceIds", "unsupportedClaims", "missingWarnings"],
+} satisfies Record<string, unknown>;
+
+const ASSISTANT_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    updatedContent: { type: "string" },
+    assistantMessage: { type: "string" },
+  },
+  required: ["updatedContent", "assistantMessage"],
+} satisfies Record<string, unknown>;
+
+async function runtimeChatCompletion(
+  model: string,
+  systemInstruction: string,
+  prompt: string,
+  runtimeConfig: GenerationRuntimeConfig,
+  responseSchema?: Record<string, unknown>,
+) {
+  const provider = getAIProvider();
+
+  try {
+    const response = await provider.generate({
+      messages: [
+        { role: "system", content: systemInstruction },
+        { role: "user", content: prompt },
+      ],
+      temperature: runtimeConfig.temperature,
+      maxOutputTokens: 1600,
+      responseMimeType: responseSchema ? "application/json" : undefined,
+      responseSchema,
+    });
+    return response.content;
+  } catch (error) {
+    if (error instanceof AIProviderError && error.kind === "configuration") {
+      throw toUserFacingAIError();
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    if (/(temperature|unsupported|not supported|invalid.+temperature)/i.test(message)) {
+      console.info(`[GENERATION] creativityUnsupported=true provider=${provider.name} model=${model}`);
+      const response = await provider.generate({
+        messages: [
+          { role: "system", content: systemInstruction },
+          { role: "user", content: prompt },
+        ],
+        maxOutputTokens: 1600,
+        responseMimeType: responseSchema ? "application/json" : undefined,
+        responseSchema,
+      });
+      return response.content;
+    }
+    throw toUserFacingAIError();
   }
-  return new OpenAI(config);
 }
 
-async function chatCompletion(client: OpenAI, model: string, prompt: string): Promise<string> {
-  const response = await client.chat.completions.create({
-    model,
-    messages: [{ role: "user", content: prompt }],
-  });
-  return response.choices[0]?.message?.content ?? "";
+function buildSystemInstruction(runtimeConfig: GenerationRuntimeConfig) {
+  return `You are a senior professional report writer.
+
+${STRICT_ANALYSIS_RULES}
+
+Write the entire final report section only in: ${runtimeConfig.language}.
+Do not switch languages unless explicitly required by the source material.`;
+}
+
+function logGenerationRuntime(mode: "generate" | "assistant", runtimeConfig: GenerationRuntimeConfig, sourceCount: number) {
+  console.info(`[GENERATION] mode=${mode} language=${runtimeConfig.language} tone=${runtimeConfig.tone.toLowerCase()} creativity=${runtimeConfig.creativityLevel} citations=${runtimeConfig.requireCitations} webResearch=${runtimeConfig.allowWebResearch} sourceCount=${sourceCount}`);
 }
 
 function buildGenerationPrompt(
   report: Report,
   section: ReportSection,
   instruction: string,
-  sectionAiPrompt: string,
+  runtimeConfig: GenerationRuntimeConfig,
   allSources: Source[],
   sourceBudget = BUDGET.sources,
   documentBudget = BUDGET.documents,
 ): string {
-  const context = buildSectionGenerationContext(report, section, allSources, sourceBudget, documentBudget);
+  const context = buildSectionGenerationContext(report, section, allSources, runtimeConfig, instruction, sourceBudget, documentBudget);
   const analysisGuide = sectionAnalysisGuide(section.title, report);
-  const aiPromptPart = sectionAiPrompt.trim() ? `SECTION CUSTOM PROMPT:\n${sectionAiPrompt.trim()}\n\n` : "";
+  const globalPromptPart = runtimeConfig.globalPrompt ? `TEMPLATE-WIDE INSTRUCTION:\n${runtimeConfig.globalPrompt}\n\n` : "";
+  const aiPromptPart = runtimeConfig.sectionPrompt ? `SECTION CUSTOM PROMPT:\n${runtimeConfig.sectionPrompt}\n\n` : "";
+  const lengthPart = runtimeConfig.lengthGuidance ? `LENGTH GUIDANCE:\n${runtimeConfig.lengthGuidance}\n\n` : "";
   const sourceIds = allSources.map((s, i) => `S${i + 1}=${s.id}`).join(", ");
 
-  return `You are a senior professional report writer.
+  return `${globalPromptPart}TONE:
+${buildToneInstruction(runtimeConfig.tone)}
 
-${STRICT_ANALYSIS_RULES}
+CITATION REQUIREMENT:
+${buildCitationInstruction(runtimeConfig.requireCitations)}
 
-${reportLanguageInstruction(report.outputLanguage)}
-
-SECTION TO WRITE: ${sectionName(report, section)}
+${lengthPart}SECTION TO WRITE: ${sectionName(report, section)}
 PURPOSE: ${section.description}
 ${aiPromptPart}ANALYTICAL REQUIREMENTS:
 ${analysisGuide}
-
-USER INSTRUCTION: ${instruction || "Write a complete, evidence-based section with specific findings."}
 
 Return strict JSON with these exact keys:
 {
@@ -251,26 +318,33 @@ Return strict JSON with these exact keys:
 CONTEXT:
 ${truncateToBudget(context, BUDGET.sources + BUDGET.documents + BUDGET.metadata)}
 
-SOURCE IDS IN ORDER: ${sourceIds || "none"}`;
+SOURCE IDS IN ORDER: ${sourceIds || "none"}
+
+USER INSTRUCTION: ${instruction || "Write a complete, evidence-based section with specific findings."}`;
 }
 
 export async function generateSection(
   report: Report,
   section: ReportSection,
-  instruction = "",
-  sectionAiPrompt = "",
+  options: { instruction?: string; template?: ReportType } = {},
 ): Promise<GenerationResult> {
-  if (!process.env.OPENAI_API_KEY) return demoGeneration(report, section);
+  const instruction = options.instruction || "";
+  const provider = getAIProvider();
+  if (!provider.configured) return demoGeneration(report, section);
 
-  const webSources = await researchWeb({ report, section, instruction });
+  const templateSection = resolveTemplateSectionConfig(options.template, report, section);
+  const runtimeConfig = resolveGenerationRuntimeConfig(report, section, options.template, templateSection);
+  const webSources = runtimeConfig.allowWebResearch ? await researchWeb({ report, section, instruction }) : [];
   const allSources = [...report.sources, ...webSources];
-  const client = createOpenAIClient();
-  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+  const model = provider.model;
+  const systemInstruction = buildSystemInstruction(runtimeConfig);
+
+  logGenerationRuntime("generate", runtimeConfig, allSources.length);
 
   const tryGenerate = async (srcBudget: number, docBudget: number, stricter = false): Promise<string> => {
-    let prompt = buildGenerationPrompt(report, section, instruction, sectionAiPrompt, allSources, srcBudget, docBudget);
+    let prompt = buildGenerationPrompt(report, section, instruction, runtimeConfig, allSources, srcBudget, docBudget);
     if (stricter) prompt = buildStricterPrompt(prompt);
-    return chatCompletion(client, model, prompt);
+    return runtimeChatCompletion(model, systemInstruction, prompt, runtimeConfig, GENERATION_RESPONSE_SCHEMA);
   };
 
   let outputText: string;
@@ -285,11 +359,16 @@ export async function generateSection(
 
   const parseResult = (): GenerationResult => {
     try {
-      const parsed = JSON.parse(outputText) as Omit<GenerationResult, "discoveredSources">;
-      return { ...parsed, discoveredSources: webSources };
-    } catch {
+      const parsed = parseJsonText<Omit<GenerationResult, "discoveredSources">>(outputText);
       return {
-        content: sanitizeSectionContent(outputText),
+        ...parsed,
+        sourceIds: filterValidSourceIds(Array.isArray(parsed.sourceIds) ? parsed.sourceIds : [], allSources),
+        discoveredSources: webSources,
+      };
+    } catch {
+      const recoveredContent = extractStructuredStringField(outputText, "content");
+      return {
+        content: sanitizeSectionContent(recoveredContent || outputText),
         confidence: "Low",
         sourceIds: [],
         unsupportedClaims: [],
@@ -307,10 +386,11 @@ export async function generateSection(
       const stricterOutput = await tryGenerate(BUDGET.sources, BUDGET.documents, true);
       const stricterResult = (() => {
         try {
-          const parsed = JSON.parse(stricterOutput) as Omit<GenerationResult, "discoveredSources">;
-          return { ...parsed, discoveredSources: webSources };
+          const parsed = parseJsonText<Omit<GenerationResult, "discoveredSources">>(stricterOutput);
+          return { ...parsed, sourceIds: filterValidSourceIds(Array.isArray(parsed.sourceIds) ? parsed.sourceIds : [], allSources), discoveredSources: webSources };
         } catch {
-          return { content: sanitizeSectionContent(stricterOutput), confidence: "Low" as const, sourceIds: [], unsupportedClaims: [], missingWarnings: [], discoveredSources: webSources };
+          const recoveredContent = extractStructuredStringField(stricterOutput, "content");
+          return { content: sanitizeSectionContent(recoveredContent || stricterOutput), confidence: "Low" as const, sourceIds: [], unsupportedClaims: [], missingWarnings: [], discoveredSources: webSources };
         }
       })();
       if (!isGenericContent(stricterResult.content)) {
@@ -330,37 +410,39 @@ export async function editSectionWithAssistant(
   instruction: string,
   actionType: AssistantActionType = "rewrite",
   currentContent = "",
-  templatePrompt = "",
-  sectionPrompt = "",
+  template?: ReportType,
 ): Promise<AssistantEditResponse> {
   const sourceContent = currentContent || section.content;
+  const provider = getAIProvider();
 
   if (actionType === "show_unsupported") {
     return analyzeUnsupportedClaims(report, sourceContent);
   }
 
-  if (!process.env.OPENAI_API_KEY) {
+  if (!provider.configured) {
     return {
       updatedSection: {
         ...section,
-        content: rewriteDemoSection(report, section, sourceContent, instruction, templatePrompt, sectionPrompt),
+        content: rewriteDemoSection(report, section, sourceContent, instruction),
       },
       assistantMessage: assistantRewriteMessage(report),
       actionType,
     };
   }
 
-  const webSources = report.allowWebResearch
-    ? await researchWeb({ report, section, instruction })
-    : [];
+  const templateSection = resolveTemplateSectionConfig(template, report, section);
+  const runtimeConfig = resolveGenerationRuntimeConfig(report, section, template, templateSection);
+  const webSources = runtimeConfig.allowWebResearch ? await researchWeb({ report, section, instruction }) : [];
 
-  const client = createOpenAIClient();
-  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+  const model = provider.model;
+  const systemInstruction = buildSystemInstruction(runtimeConfig);
+
+  logGenerationRuntime("assistant", runtimeConfig, report.sources.length + webSources.length);
 
   const tryEdit = async (srcBudget: number, docBudget: number, stricter = false): Promise<string> => {
-    let prompt = buildAssistantEditPrompt(report, section, instruction, sourceContent, [...report.sources, ...webSources], templatePrompt, sectionPrompt, srcBudget, docBudget);
+    let prompt = buildAssistantEditPrompt(report, section, instruction, sourceContent, [...report.sources, ...webSources], runtimeConfig, srcBudget, docBudget);
     if (stricter) prompt = buildStricterPrompt(prompt);
-    return chatCompletion(client, model, prompt);
+    return runtimeChatCompletion(model, systemInstruction, prompt, runtimeConfig, ASSISTANT_RESPONSE_SCHEMA);
   };
 
   let outputText: string;
@@ -455,13 +537,10 @@ function rewriteDemoSection(
   section: ReportSection,
   currentContent: string,
   instruction: string,
-  templatePrompt = "",
-  sectionPrompt = "",
 ) {
   const base = sanitizeSectionContent(currentContent || demoGeneration(report, section).content);
   const directive = instruction.toLocaleLowerCase("tr");
   const paragraphs = base.split(/\n{2,}/).filter(Boolean);
-  const promptHints = [templatePrompt, sectionPrompt].filter(Boolean).join(" ").toLocaleLowerCase("tr");
 
   if (directive.includes("tabl")) {
     return buildTableVersion(report, paragraphs);
@@ -478,9 +557,6 @@ function rewriteDemoSection(
 
   if (directive.includes("resmî kaynak") || directive.includes("official source")) {
     content = emphasizeOfficialSources(content, report);
-  }
-  if (promptHints.includes("table") && !directive.includes("tabl")) {
-    content = content;
   }
 
   return sanitizeSectionContent(content);
@@ -501,23 +577,25 @@ function buildAssistantEditPrompt(
   instruction: string,
   currentContent: string,
   allSources: Source[],
-  templatePrompt = "",
-  sectionPrompt = "",
+  runtimeConfig: GenerationRuntimeConfig,
   sourceBudget = BUDGET.sources,
   documentBudget = BUDGET.documents,
 ): string {
   const analysisGuide = sectionAnalysisGuide(section.title, report);
-  const context = buildSectionGenerationContext(report, section, allSources, sourceBudget, documentBudget);
+  const context = buildSectionGenerationContext(report, section, allSources, runtimeConfig, instruction, sourceBudget, documentBudget);
   const truncatedContent = truncateToBudget(currentContent, BUDGET.currentContent);
-  const customPromptPart = [templatePrompt, sectionPrompt].filter(Boolean).map((p) => `- ${p}`).join("\n");
+  const customPromptPart = [runtimeConfig.globalPrompt, runtimeConfig.sectionPrompt].filter(Boolean).map((p) => `- ${p}`).join("\n");
+  const lengthPart = runtimeConfig.lengthGuidance ? `${runtimeConfig.lengthGuidance}\n` : "";
 
   return `You are editing a professional report section. Return ONLY JSON with keys "updatedContent" and "assistantMessage".
 
-${STRICT_ANALYSIS_RULES}
+TONE:
+${buildToneInstruction(runtimeConfig.tone)}
 
-${reportLanguageInstruction(report.outputLanguage)}
+CITATION REQUIREMENT:
+${buildCitationInstruction(runtimeConfig.requireCitations)}
 
-SECTION: ${section.title}
+${lengthPart}SECTION: ${section.title}
 SECTION PURPOSE: ${section.description}
 ${customPromptPart ? `CUSTOM PROMPTS:\n${customPromptPart}\n` : ""}
 ANALYTICAL REQUIREMENTS FOR THIS SECTION:
@@ -539,21 +617,19 @@ Return JSON in this exact format:
 }
 
 function parseAssistantEditResponse(raw: string) {
-  const jsonText = extractJsonBlock(raw);
-  const parsed = JSON.parse(jsonText) as { updatedContent?: string | null; assistantMessage?: string };
+  let parsed: { updatedContent?: string | null; assistantMessage?: string };
+  try {
+    parsed = parseJsonText<{ updatedContent?: string | null; assistantMessage?: string }>(raw);
+  } catch {
+    parsed = {
+      updatedContent: extractStructuredStringField(raw, "updatedContent"),
+      assistantMessage: extractStructuredStringField(raw, "assistantMessage") || "",
+    };
+  }
   return {
     updatedContent: typeof parsed.updatedContent === "string" ? parsed.updatedContent : null,
     assistantMessage: typeof parsed.assistantMessage === "string" ? parsed.assistantMessage.trim() : "",
   };
-}
-
-function extractJsonBlock(raw: string) {
-  const trimmed = raw.trim();
-  if (trimmed.startsWith("{")) return trimmed;
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start >= 0 && end > start) return trimmed.slice(start, end + 1);
-  throw new Error("Assistant response was not valid JSON.");
 }
 
 function sanitizeSectionContent(content: string) {

@@ -31,6 +31,7 @@ const reportTypeSourceSchema = z.object({
   name: z.string().trim().min(1).max(160),
   url: z.string().trim().url(),
   description: z.string().trim().max(5000).optional(),
+  priority: z.enum(["HIGH", "MEDIUM", "LOW"]).optional().default("MEDIUM"),
 });
 
 export const createReportTypeSchema = z.object({

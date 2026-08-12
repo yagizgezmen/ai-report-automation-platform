@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio";
-import { collectSource } from "@/lib/source-service";
+import { assertSafeSourceUrl, collectSource } from "@/lib/source-service";
 import { Report, ReportSection, Source } from "@/lib/types";
 
 export interface WebResearchRequest {
@@ -102,8 +102,10 @@ async function discoverLinkedCandidates(seedUrl: string, queries: string[]): Pro
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
   try {
-    const response = await fetch(seedUrl, {
+    const safeSeedUrl = await assertSafeSourceUrl(seedUrl);
+    const response = await fetch(safeSeedUrl, {
       signal: controller.signal,
+      redirect: "manual",
       headers: { "User-Agent": "ArqiveAI-WebResearch/1.0" },
     });
     if (!response.ok) return [];
@@ -113,14 +115,14 @@ async function discoverLinkedCandidates(seedUrl: string, queries: string[]): Pro
       const href = $(node).attr("href");
       if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) return [];
       try {
-        const absolute = normalizeUrl(new URL(href, seedUrl).toString());
+        const absolute = normalizeUrl(new URL(href, safeSeedUrl).toString());
         if (!/^https?:\/\//.test(absolute)) return [];
         if (absolute.endsWith(".pdf") || absolute.includes("/iletisim") || absolute.includes("/contact")) return [];
         const score = hostTrustScore(absolute) + keywordScore(absolute, queries);
         if (score < 5) return [];
         return [{
           url: absolute,
-          query: queries.find((query) => keywordScore(absolute, [query]) > 0) || queries[0] || seedUrl,
+          query: queries.find((query) => keywordScore(absolute, [query]) > 0) || queries[0] || safeSeedUrl,
           score,
         }];
       } catch {

@@ -9,11 +9,19 @@ import {
 import Link from "next/link";
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LanguageSelector, useLanguage } from "@/components/language-provider";
+import { deriveReportStatus } from "@/lib/report-status";
 import { localizeConfidence, localizeReportStatus, localizeReportType, localizeReviewStatus, localizeSection } from "@/lib/localization";
 
 type Tab = "assistant" | "sources" | "review";
 type ChatItem = { role: "user" | "assistant"; text: string };
 type AssistantAction = "rewrite" | "show_unsupported";
+
+const reportStatusStyles: Record<Report["status"], string> = {
+  Draft: "bg-slate-100 text-slate-600",
+  "In Progress": "bg-blue-50 text-blue-700",
+  "Needs Review": "bg-amber-50 text-amber-700",
+  Completed: "bg-emerald-50 text-emerald-700",
+};
 
 export function ReportEditor({ reportId }: { reportId: string }) {
   const { language, t } = useLanguage();
@@ -46,7 +54,12 @@ export function ReportEditor({ reportId }: { reportId: string }) {
 
   function updateSection(changes: Partial<ReportSection>) {
     if (!report || !section) return;
-    setReport({ ...report, sections: report.sections.map((item) => item.id === section.id ? { ...item, ...changes } : item) });
+    const sections = report.sections.map((item) => item.id === section.id ? { ...item, ...changes } : item);
+    setReport({
+      ...report,
+      sections,
+      status: deriveReportStatus(sections),
+    });
   }
 
   async function save() {
@@ -71,11 +84,12 @@ export function ReportEditor({ reportId }: { reportId: string }) {
     const body = await response.json();
     if (!response.ok) setError(body.error || (language === "tr" ? "İçerik oluşturulamadı." : "Generation failed."));
     else {
+      const sections = report.sections.map((item) => item.id === section.id ? body.section : item);
       setReport({
         ...report,
-        status: body.reportStatus,
+        status: deriveReportStatus(sections),
         sources: mergeSources(report.sources, body.discoveredSources || []),
-        sections: report.sections.map((item) => item.id === section.id ? body.section : item),
+        sections,
       });
       setChat((items) => [
         ...items,
@@ -107,7 +121,11 @@ export function ReportEditor({ reportId }: { reportId: string }) {
       setReport((current) => {
         if (!current) return current;
         const nextSections = current.sections.map((item) => item.id === body.updatedSection.id ? body.updatedSection : item);
-        return { ...current, sections: nextSections };
+        return {
+          ...current,
+          sections: nextSections,
+          status: deriveReportStatus(nextSections),
+        };
       });
     }
     setBusy("");
@@ -161,7 +179,7 @@ export function ReportEditor({ reportId }: { reportId: string }) {
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h1 className="truncate text-sm font-bold">{report.projectName}</h1>
-              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">{localizeReportStatus(report.status, language)}</span>
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${reportStatusStyles[report.status]}`}>{localizeReportStatus(report.status, language)}</span>
             </div>
             <p className="mt-1 truncate text-[11px] text-slate-500">{localizeReportType(report.reportType, language)} · {report.location}</p>
             <p className={`mt-1 text-[10px] font-semibold ${report.allowWebResearch ? "text-emerald-600" : "text-slate-400"}`}>

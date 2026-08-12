@@ -24,7 +24,9 @@ An enterprise-style MVP for producing long-form, evidence-grounded company repor
 - Tailwind CSS 4
 - Next.js Route Handlers
 - PostgreSQL, Prisma, pgvector
-- OpenAI JavaScript SDK and Responses API
+- Provider-neutral AI runtime with Gemini, OpenAI, and Ollama adapters
+- Google GenAI SDK for Gemini development connectivity
+- OpenAI JavaScript SDK for future OpenAI-compatible providers
 - `pdf-parse`, `mammoth`, `cheerio`, and `docx`
 - Vitest
 
@@ -43,12 +45,44 @@ Open [http://localhost:3000](http://localhost:3000).
 The app starts in demo mode only when `DATABASE_URL` is missing or `DEMO_MODE=true`. If `DATABASE_URL` is present and `DEMO_MODE` is not `"true"`, the application uses PostgreSQL persistence and does not fall back to the in-memory store.
 
 ```env
+AI_PROVIDER="gemini"
+GEMINI_API_KEY="..."
+GEMINI_MODEL="gemini-3.5-flash"
+
 OPENAI_API_KEY="..."
+OPENAI_BASE_URL=""
 OPENAI_MODEL="gpt-5.4-mini"
+
+OLLAMA_BASE_URL="http://localhost:11434/v1"
+OLLAMA_MODEL="llama3.1"
+
 OPENAI_EMBEDDING_MODEL="text-embedding-3-small"
 ```
 
-API keys are read only in server-side route handlers and are never exposed to the browser.
+`AI_PROVIDER=gemini` is the default development path. The retired GitHub Models endpoint must not be used. API keys are read only in server-side code and are never exposed to the browser.
+
+## Authentication
+
+The project now includes a first-step application authentication layer.
+
+Set these environment variables to enable it:
+
+```env
+AUTH_USERNAME="admin"
+AUTH_PASSWORD="change-me"
+AUTH_SECRET="replace-with-a-long-random-secret"
+```
+
+When `AUTH_SECRET` is configured and either an existing `.data/workspace-profile.json`
+file is present or `AUTH_PASSWORD` is supplied for first bootstrap, the middleware
+protects all pages and API routes except `/login`, `/api/auth/login`,
+`/api/auth/logout`, and `/api/health`. This is an application-level session gate,
+not yet full user-level authorization.
+
+On first start, the app creates a local workspace profile file at
+`.data/workspace-profile.json` using the bootstrap username/password from the
+environment. There is no fallback default password anymore. After that, name,
+contact details, username, and password can be managed from `/settings/profile`.
 
 ## Database setup
 
@@ -157,7 +191,7 @@ npx prisma migrate deploy
 
 The Prisma repository persists `User`, `Report`, `ReportType`, `ReportTypeSection`, `ReportTypeSource`, `ReportSection`, `Source`, `SectionSource`, `UploadedDocument`, `DocumentChunk`, `ChatMessage`, and `GenerationJob`. `DocumentChunk.embedding` is a nullable `vector(1536)` field ready for OpenAI embeddings.
 
-Reports, section edits, sources, uploaded document text/chunks, chat messages, and generation job states survive application restarts in PostgreSQL mode. The health endpoint reports the active mode as `demo` or `postgresql`.
+Reports, section edits, sources, uploaded document text/chunks, chat messages, and generation job states survive application restarts in PostgreSQL mode. The public health endpoint intentionally returns only a minimal status payload plus the active persistence mode.
 
 ### Persistence architecture
 
